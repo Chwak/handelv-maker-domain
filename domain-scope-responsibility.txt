@@ -1,0 +1,143 @@
+================================================================================
+MAKER DOMAIN - SCOPE & RESPONSIBILITY
+================================================================================
+
+DOMAIN PURPOSE
+================================================================================
+
+The Maker Domain manages maker profiles, operations, and craft heritage information. This domain is responsible for all maker-specific configuration, availability, and artisan background that enables makers to present themselves and manage their shop operations.
+
+================================================================================
+WHAT THIS DOMAIN OWNS
+================================================================================
+
+1. Maker Profiles
+   - Profile information (store name, location, primary craft)
+   - Profile metadata (years of experience, business type)
+   - Profile customization settings
+
+2. Maker Operations
+   - Operational hours/schedule
+   - Vacation/closure periods
+   - Order capacity and rush order availability
+   - Custom order acceptance settings
+
+3. Craft Heritage
+   - Artisan background and story
+   - Craft specialties and techniques
+   - Certifications and awards
+   - Historical/cultural context
+
+================================================================================
+WHAT THIS DOMAIN IS RESPONSIBLE FOR
+================================================================================
+
+1. Maker Profile Management
+   - Creating maker profiles (on user registration with maker role)
+   - Updating maker profile information
+   - Managing maker settings and preferences
+   - Validating profile completeness
+
+2. Shop Operations Management
+   - Managing operational availability
+   - Handling vacation/closure scheduling
+   - Configuring order capacity
+   - Managing order type preferences
+
+3. Heritage Tracking
+   - Creating and maintaining heritage records
+   - Managing multiple heritage entries per maker
+   - Publishing heritage information to discovery domain
+
+4. Event Publishing
+   - Publishing MakerProfileCreated events
+   - Publishing MakerProfileUpdated events
+   - Publishing MakerOnline/OfflineStatus events
+   - Publishing VacationScheduled/UnscheduledEvents
+
+================================================================================
+WHAT THIS DOMAIN DOES NOT OWN
+================================================================================
+
+1. User Authentication
+   - User accounts (Auth Essentials Domain)
+   - User identity and permissions (Identity Domain)
+
+2. Products
+   - Product products (Shelf Domain)
+   - Inventory management (Inventory Domain)
+   - Product availability (Inventory Domain)
+
+3. Engagement Tracking
+   - Follower counts (Analytics Domain)
+   - Rating statistics (Analytics Domain)
+   - Maker activity metrics (Analytics Domain)
+   - Engagement analytics (Analytics Domain)
+
+4. Orders & Payments
+   - Order creation and management (Order Domain)
+   - Payment processing (Payment Domain)
+   - Payout calculations (Payout Domain)
+
+5. Communications
+   - Messages and notifications (Notification Domain)
+   - Marketing communications (Communication Domain)
+
+6. Verification & Trust
+   - Trust scoring (Verification Trust Domain)
+   - Review management (Review Trust Domain)
+
+================================================================================
+DATA STRUCTURE
+================================================================================
+
+PRIMARY TABLES:
+- maker_profiles: Source of truth for maker profile data
+  Key: userId (PK)
+  Contains: store name, location, primary craft, bio, years of experience, etc.
+
+- maker_operations: Manage maker shop operations
+  Key: userId (PK), operationType (SK)
+  Contains: schedule, vacation periods, order capacity, rush order settings
+
+- maker_craft_heritage: Store maker's artisan background (one-to-many)
+  Key: userId (PK), heritageId (SK)
+  Contains: heritage story, techniques, certifications, cultural context
+
+PUBLISHING TARGETS:
+- SNS Topic: maker-events
+  Subscribers: Analytics Domain, Notification Domain, Discovery Domain
+
+================================================================================
+DOMAIN BOUNDARIES & INTERACTIONS
+================================================================================
+
+✓ CAN INTERACT WITH:
+  - Identity Domain: Verify user has maker role
+  - Analytics Domain: Publish engagement events to sync follower counts
+  - Discovery Domain: Publish maker information for discovery/search
+  - Notification Domain: Trigger notifications on profile updates
+  - Shelf Domain: Used when displaying maker info with products
+
+✗ MUST NOT INTERACT WITH:
+  - Engagement metrics (owned by Analytics Domain)
+  - Follower counts (analytics-derived)
+  - Rating scores (owned by Review Trust Domain)
+  - Order history (owned by Order Domain)
+  - Verification status (owned by Verification Trust Domain)
+
+================================================================================
+EXAMPLES OF SCOPE VIOLATIONS TO AVOID
+================================================================================
+
+❌ BAD: Maker domain tracks follower counts in maker_profiles table
+   → Solution: Publish MakerFollowed event; let Analytics compute follower counts
+
+❌ BAD: Maker domain stores engagement activity (views, saves, follows)
+   → Solution: Move to Analytics Domain with event-driven sync
+
+❌ BAD: Maker domain manages maker ratings
+   → Solution: Owned by Review Trust Domain; maker domain is read-only
+
+❌ BAD: Maker domain tracks order history
+   → Solution: Owned by Order Domain; maker domain publishes order completion events

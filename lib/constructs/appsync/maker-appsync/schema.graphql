@@ -1,0 +1,765 @@
+# =====================================================
+# QUERIES
+# =====================================================
+type Query @aws_cognito_user_pools {
+  # Profile queries
+  getMakerProfile: MakerProfile
+  getPublicMakerProfile(userId: ID!): MakerProfile
+  getMakerSettings: MakerSettings
+  getVerificationStatus: MakerVerificationStatus
+  
+  # Operations queries
+  getOperations(weekDate: String!): BusinessOperations
+  getCurrentOperations: BusinessOperations
+  
+  # Craft Heritage queries
+  listCraftHeritage(limit: Int, nextToken: String): CraftHeritageConnection
+  getCraftHeritage(heritageId: ID!): CraftHeritage
+  
+  # Analytics queries
+  getAnalyticsDashboard: AnalyticsMetrics
+  getAnalyticsHistory(fromDate: String!, toDate: String!): AnalyticsHistoryConnection
+  
+}
+
+# =====================================================
+# MUTATIONS
+# =====================================================
+type Mutation @aws_cognito_user_pools {
+  # Profile mutations
+  setupMakerProfile(input: SetupMakerProfileInput!): MakerProfile
+  updateMakerProfile(input: UpdateMakerProfileInput!): MakerProfile
+  updateSkills(input: UpdateSkillsInput!): MakerProfile
+  updateMakerSettings(input: UpdateMakerSettingsInput!): MakerSettings
+  
+  # Operations mutations
+  setupOperations(input: SetupOperationsInput!): BusinessOperations
+  updateOperations(input: UpdateOperationsInput!): BusinessOperations
+  setVacationMode(input: SetVacationModeInput!): BusinessOperations
+  
+  # Craft Heritage mutations
+  addCraftHeritage(input: AddCraftHeritageInput!): CraftHeritage
+  updateCraftHeritage(input: UpdateCraftHeritageInput!): CraftHeritage
+  deleteCraftHeritage(heritageId: ID!): Boolean
+  
+}
+
+# =====================================================
+# SUBSCRIPTIONS
+# =====================================================
+type Subscription @aws_cognito_user_pools {
+  onMakerProfileUpdated(userId: ID!): MakerProfile
+    @aws_subscribe(mutations: ["setupMakerProfile", "updateMakerProfile", "updateSkills"])
+  onOperationsUpdated(makerUserId: ID!): BusinessOperations
+    @aws_subscribe(mutations: ["setupOperations", "updateOperations", "setVacationMode"])
+}
+
+# =====================================================
+# ENUMS
+# =====================================================
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum BusinessType {
+  INDIVIDUAL
+  SOLE_PROPRIETORSHIP
+  LLC
+  CORPORATION
+}
+
+enum Workload {
+  LIGHT
+  MODERATE
+  HEAVY
+  AT_CAPACITY
+}
+
+enum MasteryLevel {
+  APPRENTICE
+  JOURNEYMAN
+  MASTER
+  GRANDMASTER
+}
+
+# =====================================================
+# TYPES - MAKER PROFILE (Phase 1 Schema)
+# =====================================================
+type MakerProfile {
+  # Identity
+  userId: ID!
+  email: String!
+  username: String
+  fullName: String
+  givenName: String
+  familyName: String
+  phoneNumber: String
+  displayName: String
+  publicProfileEnabled: Boolean
+  phoneVerified: Boolean
+  phoneVerifiedAt: AWSDateTime
+  
+  # Business Information
+  businessName: String
+  storeDescription: String
+  bio: String
+  serviceAreas: [String!]
+  businessType: BusinessType
+  taxId: String
+  
+  # Location
+  location: Location
+  
+  # Media
+  profileImageUrl: String
+  profileImageStatus: String
+  profileImageUpdatedAt: AWSDateTime
+  bannerImageUrl: String
+  bannerImageStatus: String
+  bannerImageUpdatedAt: AWSDateTime
+  
+  # Craft
+  primaryCraft: String
+  yearsOfExperience: Int
+  craftHeritage: CraftHeritageInfo
+
+  # Public contact
+  publicEmail: String
+  publicPhoneNumber: String
+  websiteUrl: String
+  instagramUrl: String
+  tiktokUrl: String
+  facebookUrl: String
+
+  # Policies
+  shippingPolicy: String
+  customOrderPolicy: String
+  cancellationPolicy: String
+  
+  # Verification
+  identityVerificationStatus: VerificationStatus!
+  emailVerified: Boolean!
+  emailVerifiedAt: AWSDateTime
+  
+  # Stats (denormalized)
+  totalShelfItems: Int!
+  activeShelfItems: Int!
+  soldShelfItems: Int!
+  totalSales: Int!
+  totalReviews: Int!
+  averageRating: Float
+  
+  # Operational
+  acceptCustomOrders: Boolean!
+  acceptRushOrders: Boolean!
+  isActive: Boolean!
+  isSuspended: Boolean!
+  suspendedReason: String
+
+  # Account status
+  onboardingComplete: Boolean
+  lastLoginAt: AWSDateTime
+  marketingOptInAt: AWSDateTime
+  termsAcceptedAt: AWSDateTime
+  privacyPolicyAcceptedAt: AWSDateTime
+  
+  # Timestamps
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type Location {
+  country: String!
+  state: String!
+  city: String!
+  zipCode: String
+  timezone: String!
+}
+
+type CraftHeritageInfo {
+  tradition: String
+  techniques: String
+  materials: String
+  inspiration: String
+}
+
+# =====================================================
+# TYPES - BUSINESS OPERATIONS
+# =====================================================
+type BusinessOperations {
+  makerUserId: ID!
+  weekDate: String!
+  
+  # Schedule
+  workingDaysThisWeek: [Int!]!
+  hoursPerDay: HoursPerDay!
+  
+  # Vacation
+  vacationMode: Boolean!
+  vacationStartDate: AWSDateTime
+  vacationEndDate: AWSDateTime
+  
+  # Capacity
+  currentWorkload: Workload!
+  nextAvailableSlot: AWSDateTime
+  acceptingCustomOrders: Boolean!
+  acceptingRushOrders: Boolean!
+  
+  # Recurring
+  recurringClosures: [RecurringClosure!]
+  peakSeasonIndicator: Boolean!
+  
+  # Timestamps
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type HoursPerDay {
+  mon: Int
+  tue: Int
+  wed: Int
+  thu: Int
+  fri: Int
+  sat: Int
+  sun: Int
+}
+
+type RecurringClosure {
+  dayOfWeek: Int!
+  reason: String!
+}
+
+# =====================================================
+# TYPES - CRAFT HERITAGE
+# =====================================================
+type CraftHeritage {
+  makerUserId: ID!
+  heritageId: ID!
+  
+  # Tradition
+  craftTradition: String!
+  traditionOrigin: TraditionOrigin!
+  
+  # Mastery
+  masteryLevel: MasteryLevel!
+  yearsOfPractice: Int!
+  
+  # Lineage
+  masterArtisan: MasterArtisan
+  
+  # Technique
+  techniqueDetails: TechniqueDetails!
+  
+  # Certification
+  certifyingBodyOrGuild: CertifyingBody
+  
+  # Teaching
+  apprenticesTrained: Int!
+  isTeachingOrAcceptingApprentices: Boolean!
+  
+  # Media
+  mediaDocumentation: [MediaDocumentation!]
+  
+  # Significance
+  culturalSignificance: String!
+  modernInfluences: [String!]
+  
+  # Timestamps
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type TraditionOrigin {
+  culture: String!
+  region: String!
+  centuriesOld: Int!
+}
+
+type MasterArtisan {
+  name: String!
+  relationship: String!
+  yearsUnder: Int!
+}
+
+type TechniqueDetails {
+  name: String!
+  description: String!
+  toolsRequired: [String!]!
+  difficultyLevel: Int!
+  timeRequiredPerPiece: Int!
+  modernAdaptations: String
+}
+
+type CertifyingBody {
+  name: String!
+  certificationDate: AWSDateTime!
+  certificationLevel: String!
+}
+
+type MediaDocumentation {
+  type: String!
+  url: String!
+  title: String!
+}
+
+type CraftHeritageConnection {
+  items: [CraftHeritage!]!
+}
+
+# =====================================================
+# TYPES - ANALYTICS
+# =====================================================
+type AnalyticsMetrics {
+  makerUserId: ID!
+  metricDate: String!
+  
+  # Traffic
+  profileViews: Int!
+  shelfItemViews: Int!
+  shelfItemClicks: Int!
+  savedCount: Int!
+  
+  # Followers
+  followersGained: Int!
+  followersLost: Int!
+  totalFollowers: Int!
+  
+  # Sales
+  salesCount: Int!
+  revenue: Float!
+  avgOrderValue: Float!
+  conversionRate: Float!
+  
+  # Custom Orders
+  customOrderInquiries: Int!
+  customOrderAcceptanceRate: Float!
+  
+  # Reviews
+  avgRating: Float!
+  newReviews: Int!
+  
+  # Communication
+  messageResponseTime: Int!
+  messageResponseRate: Float!
+  
+  # Shelf Items
+  activeShelfItemsCount: Int!
+  draftShelfItemsCount: Int!
+  soldOutShelfItemsCount: Int!
+  
+  # Performance
+  topPerformingShelfItemId: String
+  topPerformingCategory: String
+  
+  # Timestamps
+  createdAt: AWSDateTime!
+}
+
+type AnalyticsHistoryConnection {
+  items: [AnalyticsMetrics!]!
+}
+
+# =====================================================
+# TYPES - MAKER VERIFICATION
+# =====================================================
+type MakerVerificationStatus {
+  makerUserId: ID!
+  identityVerified: Boolean!
+  businessVerified: Boolean!
+  proofOfCraftVerified: Boolean!
+  overallStatus: VerificationStatus!
+  lastUpdated: AWSDateTime!
+}
+
+# =====================================================
+# INPUTS - MAKER PROFILE
+# =====================================================
+input SetupMakerProfileInput {
+  userId: ID!
+  
+  # Business Information
+  businessName: String!
+  storeDescription: String!
+  bio: String!
+  displayName: String
+  businessType: BusinessType!
+  taxId: String
+  
+  # Location
+  location: LocationInput!
+  
+  # Media
+  profileImageUrl: String
+  bannerImageUrl: String
+  
+  # Craft
+  primaryCraft: String!
+  yearsOfExperience: Int!
+  
+  # Preferences
+  acceptCustomOrders: Boolean!
+  acceptRushOrders: Boolean!
+}
+
+input UpdateMakerProfileInput {
+  userId: ID!
+  businessName: String
+  displayName: String
+  bio: String
+  serviceAreas: [String!]
+  profileImageUrl: String
+  bannerImageUrl: String
+  publicEmail: String
+  publicPhoneNumber: String
+  websiteUrl: String
+  instagramUrl: String
+  tiktokUrl: String
+  facebookUrl: String
+  shippingPolicy: String
+  customOrderPolicy: String
+  cancellationPolicy: String
+  publicProfileEnabled: Boolean
+  acceptCustomOrders: Boolean
+  acceptRushOrders: Boolean
+}
+
+input UpdateSkillsInput {
+  userId: ID!
+  skills: [String!]!
+}
+
+input LocationInput {
+  country: String!
+  state: String!
+  city: String!
+  zipCode: String
+  timezone: String!
+}
+
+# =====================================================
+# INPUTS - BUSINESS OPERATIONS
+# =====================================================
+input SetupOperationsInput {
+  weekDate: String!
+  workingDaysThisWeek: [Int!]!
+  hoursPerDay: HoursPerDayInput!
+  vacationMode: Boolean!
+  vacationStartDate: AWSDateTime
+  vacationEndDate: AWSDateTime
+  currentWorkload: Workload!
+  acceptingCustomOrders: Boolean!
+  acceptingRushOrders: Boolean!
+  recurringClosures: [RecurringClosureInput!]
+  peakSeasonIndicator: Boolean!
+}
+
+input UpdateOperationsInput {
+  weekDate: String!
+  workingDaysThisWeek: [Int!]
+  hoursPerDay: HoursPerDayInput
+  currentWorkload: Workload
+  acceptingCustomOrders: Boolean
+  acceptingRushOrders: Boolean
+  recurringClosures: [RecurringClosureInput!]
+  peakSeasonIndicator: Boolean
+}
+
+input SetVacationModeInput {
+  weekDate: String!
+  vacationMode: Boolean!
+  vacationStartDate: AWSDateTime
+  vacationEndDate: AWSDateTime
+}
+
+input HoursPerDayInput {
+  mon: Int
+  tue: Int
+  wed: Int
+  thu: Int
+  fri: Int
+  sat: Int
+  sun: Int
+}
+
+input RecurringClosureInput {
+  dayOfWeek: Int!
+  reason: String!
+}
+
+# =====================================================
+# INPUTS - CRAFT HERITAGE
+# =====================================================
+input AddCraftHeritageInput {
+  makerUserId: ID!
+  craftTradition: String!
+  traditionOrigin: TraditionOriginInput!
+  masteryLevel: MasteryLevel!
+  yearsOfPractice: Int!
+  masterArtisan: MasterArtisanInput
+  techniqueDetails: TechniqueDetailsInput!
+  certifyingBodyOrGuild: CertifyingBodyInput
+  apprenticesTrained: Int!
+  isTeachingOrAcceptingApprentices: Boolean!
+  mediaDocumentation: [MediaDocumentationInput!]
+  culturalSignificance: String!
+  modernInfluences: [String!]
+}
+
+input UpdateCraftHeritageInput {
+  makerUserId: ID!
+  heritageId: ID!
+  craftTradition: String
+  traditionOrigin: TraditionOriginInput
+  masteryLevel: MasteryLevel
+  yearsOfPractice: Int
+  masterArtisan: MasterArtisanInput
+  techniqueDetails: TechniqueDetailsInput
+  certifyingBodyOrGuild: CertifyingBodyInput
+  apprenticesTrained: Int
+  isTeachingOrAcceptingApprentices: Boolean
+  mediaDocumentation: [MediaDocumentationInput!]
+  culturalSignificance: String
+  modernInfluences: [String!]
+}
+
+input TraditionOriginInput {
+  culture: String!
+  region: String!
+  centuriesOld: Int!
+}
+
+input MasterArtisanInput {
+  name: String!
+  relationship: String!
+  yearsUnder: Int!
+}
+
+input TechniqueDetailsInput {
+  name: String!
+  description: String!
+  toolsRequired: [String!]!
+  difficultyLevel: Int!
+  timeRequiredPerPiece: Int!
+  modernAdaptations: String
+}
+
+input CertifyingBodyInput {
+  name: String!
+  certificationDate: AWSDateTime!
+  certificationLevel: String!
+}
+
+input MediaDocumentationInput {
+  type: String!
+  url: String!
+  title: String!
+}
+
+# =====================================================
+# MAKER SETTINGS
+# =====================================================
+type MakerSettings {
+  userId: ID!
+  notifications: MakerNotifications!
+  notificationChannels: MakerNotificationChannels!
+  shop: ShopSettings!
+  business: BusinessSettings!
+  privacy: MakerPrivacy!
+  communication: CommunicationPreferences!
+  display: DisplayPreferences!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type MakerNotifications {
+  newOrder: Boolean!
+  orderCancellation: Boolean!
+  orderDispute: Boolean!
+  newReview: Boolean!
+  newFollower: Boolean!
+  newMessage: Boolean!
+  lowInventory: Boolean!
+  dailySalesSummary: Boolean!
+  weeklySalesSummary: Boolean!
+  monthlySalesSummary: Boolean!
+  platformPromotions: Boolean!
+  tipsAndBestPractices: Boolean!
+  accountSecurity: Boolean!
+  policyUpdates: Boolean!
+  payoutNotifications: Boolean!
+}
+
+type NotificationChannelPreferences {
+  email: Boolean!
+  push: Boolean!
+  sms: Boolean!
+}
+
+type MakerNotificationChannels {
+  newOrder: NotificationChannelPreferences!
+  orderCancellation: NotificationChannelPreferences!
+  orderDispute: NotificationChannelPreferences!
+  newReview: NotificationChannelPreferences!
+  newFollower: NotificationChannelPreferences!
+  newMessage: NotificationChannelPreferences!
+  lowInventory: NotificationChannelPreferences!
+  dailySalesSummary: NotificationChannelPreferences!
+  weeklySalesSummary: NotificationChannelPreferences!
+  monthlySalesSummary: NotificationChannelPreferences!
+  platformPromotions: NotificationChannelPreferences!
+  tipsAndBestPractices: NotificationChannelPreferences!
+  accountSecurity: NotificationChannelPreferences!
+  policyUpdates: NotificationChannelPreferences!
+  payoutNotifications: NotificationChannelPreferences!
+}
+
+type ShopSettings {
+  isOnVacationMode: Boolean!
+  vacationMessage: String
+  vacationStartDate: AWSDateTime
+  vacationEndDate: AWSDateTime
+  autoReplyEnabled: Boolean!
+  autoReplyMessage: String
+  processingTimeMinDays: Int!
+  processingTimeMaxDays: Int!
+}
+
+type BusinessSettings {
+  acceptCustomOrders: Boolean!
+  customOrderMinimum: Float
+  acceptRushOrders: Boolean!
+  rushOrderFeePercentage: Float!
+  returnPolicy: String!
+  acceptsExchanges: Boolean!
+}
+
+type MakerPrivacy {
+  showSalesCount: Boolean!
+  showReviewCount: Boolean!
+  showJoinDate: Boolean!
+  allowCustomerContact: Boolean!
+  showBusinessLocation: Boolean!
+  allowMessagesFromFollowersOnly: Boolean!
+  allowMessagesFromPurchasersOnly: Boolean!
+  allowMessagesFromVerifiedUsersOnly: Boolean!
+  blockedUserIds: [ID!]
+}
+
+type CommunicationPreferences {
+  autoResponseDelay: Int!
+  responseTimeGoal: Int!
+  preferredContactMethod: String!
+}
+
+type DisplayPreferences {
+  language: String!
+  currency: String!
+  measurementSystem: String!
+  timezone: String!
+  dateFormat: String!
+  timeFormat: String!
+}
+
+input UpdateMakerSettingsInput {
+  notifications: MakerNotificationsInput
+  notificationChannels: MakerNotificationChannelsInput
+  shop: ShopSettingsInput
+  business: BusinessSettingsInput
+  privacy: MakerPrivacyInput
+  communication: CommunicationPreferencesInput
+  display: DisplayPreferencesInput
+}
+
+input MakerNotificationsInput {
+  newOrder: Boolean
+  orderCancellation: Boolean
+  orderDispute: Boolean
+  newReview: Boolean
+  newFollower: Boolean
+  newMessage: Boolean
+  lowInventory: Boolean
+  dailySalesSummary: Boolean
+  weeklySalesSummary: Boolean
+  monthlySalesSummary: Boolean
+  platformPromotions: Boolean
+  tipsAndBestPractices: Boolean
+  accountSecurity: Boolean
+  policyUpdates: Boolean
+  payoutNotifications: Boolean
+}
+
+input NotificationChannelPreferencesInput {
+  email: Boolean
+  push: Boolean
+  sms: Boolean
+}
+
+input MakerNotificationChannelsInput {
+  newOrder: NotificationChannelPreferencesInput
+  orderCancellation: NotificationChannelPreferencesInput
+  orderDispute: NotificationChannelPreferencesInput
+  newReview: NotificationChannelPreferencesInput
+  newFollower: NotificationChannelPreferencesInput
+  newMessage: NotificationChannelPreferencesInput
+  lowInventory: NotificationChannelPreferencesInput
+  dailySalesSummary: NotificationChannelPreferencesInput
+  weeklySalesSummary: NotificationChannelPreferencesInput
+  monthlySalesSummary: NotificationChannelPreferencesInput
+  platformPromotions: NotificationChannelPreferencesInput
+  tipsAndBestPractices: NotificationChannelPreferencesInput
+  accountSecurity: NotificationChannelPreferencesInput
+  policyUpdates: NotificationChannelPreferencesInput
+  payoutNotifications: NotificationChannelPreferencesInput
+}
+
+input ShopSettingsInput {
+  isOnVacationMode: Boolean
+  vacationMessage: String
+  vacationStartDate: AWSDateTime
+  vacationEndDate: AWSDateTime
+  autoReplyEnabled: Boolean
+  autoReplyMessage: String
+  processingTimeMinDays: Int
+  processingTimeMaxDays: Int
+}
+
+input BusinessSettingsInput {
+  acceptCustomOrders: Boolean
+  customOrderMinimum: Float
+  acceptRushOrders: Boolean
+  rushOrderFeePercentage: Float
+  returnPolicy: String
+  acceptsExchanges: Boolean
+}
+
+input MakerPrivacyInput {
+  showSalesCount: Boolean
+  showReviewCount: Boolean
+  showJoinDate: Boolean
+  allowCustomerContact: Boolean
+  showBusinessLocation: Boolean
+  allowMessagesFromFollowersOnly: Boolean
+  allowMessagesFromPurchasersOnly: Boolean
+  allowMessagesFromVerifiedUsersOnly: Boolean
+  blockedUserIds: [ID!]
+}
+
+input CommunicationPreferencesInput {
+  autoResponseDelay: Int
+  responseTimeGoal: Int
+  preferredContactMethod: String
+}
+
+input DisplayPreferencesInput {
+  language: String
+  currency: String
+  measurementSystem: String
+  timezone: String
+  dateFormat: String
+  timeFormat: String
+}
+

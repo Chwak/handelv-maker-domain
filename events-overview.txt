@@ -1,0 +1,22 @@
+Maker Domain - Events Overview
+Last Updated: 2026-02-15
+
+Produced Events (EventBridge)
+- MakerProfileCreated
+- MakerProfileUpdated
+- MakerVacationModeChanged
+- MakerOperationsUpdated
+- MakerVerified (re-published)
+- CraftHeritageDocumented
+
+Consumed Events (EventBridge)
+- UserRegistrationComplete (from Auth Essentials)
+- UserModeChanged (from Auth Essentials)
+- MakerFollowed (from Collector Domain)
+- MakerUnfollowed (from Collector Domain)
+- ProductPublished (from Product Domain)
+- ProductSoldOut (from Product Domain)
+- OrderCompleted (from Order Domain)
+- ReviewCreated (from Review Domain)
+- MessageReceived (from Communication Domain)
+- MakerVerified (from Verification Domain)

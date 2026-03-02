@@ -1,0 +1,164 @@
+================================================================================
+MAKER DOMAIN - EVENT CATALOG
+================================================================================
+Domain: maker-domain
+Event Source: hand-made.maker-domain
+Last Updated: 2026-02-16
+
+================================================================================
+PRODUCED EVENTS
+================================================================================
+
+Event: maker.profile.created.v1
+Status: ✅ IMPLEMENTED & ACTIVE
+--------------------------------------------------------------------------------
+Description:
+  Published when a maker profile is successfully created in response to 
+  user identity completion or mode switch.
+
+Trigger:
+  - Receives user.identity.completed.v1 with makerEnabled=true
+  - OR receives user.mode.maker.enabled.v1
+  - Email uniqueness check passes
+
+Republish Lambda:
+  - new-maker-from-auth-lambda → outbox table
+
+Payload Schema:
+  {
+    "userId": "string (UUID)",
+    "email": "string (email format)",
+    "name": "string",
+    "username": "string (optional)",
+    "createdAt": "string (ISO8601 timestamp)",
+    "profileId": "string (same as userId)"
+  }
+
+Consumers:
+  - product-domain (product-event-consumer-lambda) - initialize catalog
+
+Business Rules:
+  - Email must be unique across all maker profiles (enforced via GSI2-Email)
+  - Idempotency via idempotency table (eventId as key)
+  - Profile creation skipped if email already exists (duplicate user scenario)
+
+--------------------------------------------------------------------------------
+
+Event: maker.profile.updated.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Will be published when a maker updates their profile information.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: product-domain, shelf-discovery-domain, notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: maker.vacation.mode.changed.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when maker enables/disables vacation mode.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: product-domain, order-domain, notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: maker.operations.updated.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when maker updates operational settings (shipping zones, 
+  processing times, etc.).
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: order-domain, product-domain
+
+--------------------------------------------------------------------------------
+
+Event: maker.verified.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when maker completes identity verification process.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: product-domain, shelf-discovery-domain, notification-domain
+
+================================================================================
+CONSUMED EVENTS
+================================================================================
+
+Event: user.identity.completed.v1
+Source: hand-made.auth-essentials
+--------------------------------------------------------------------------------
+Handler Lambda: new-maker-from-auth-lambda
+EventBridge Rule Filter: 
+  - detail.payload.makerEnabled = [true]
+
+Action:
+  1. Check email uniqueness via GSI2-Email index
+  2. If duplicate, skip creation and mark idempotent
+  3. If unique, create maker profile in maker_profiles table
+  4. Create default settings in maker_settings table
+  5. Publish maker.profile.created.v1 to outbox
+
+Error Handling:
+  - AccessDeniedException: Lambda requires dynamodb:Query on GSI
+  - ConditionalCheckFailed: Profile already exists (idempotency)
+
+--------------------------------------------------------------------------------
+
+Event: user.mode.maker.enabled.v1
+Source: hand-made.auth-essentials
+--------------------------------------------------------------------------------
+Handler Lambda: new-maker-from-auth-lambda
+EventBridge Rule Filter:
+  - detail.payload.experience = ["maker"]
+
+Action:
+  Same as user.identity.completed.v1 handling
+
+--------------------------------------------------------------------------------
+
+Event: order.completed.v1
+Source: hand-made.order-domain
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Handler Lambda: TBD
+Action: Update maker stats, earnings, order history
+
+--------------------------------------------------------------------------------
+
+Event: review.created.v1
+Source: hand-made.review-trust-domain
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Handler Lambda: TBD
+Action: Update maker rating, reputation score
+
+================================================================================
+DATA PROTECTION & UNIQUENESS
+================================================================================
+
+Email Uniqueness:
+  - GSI2-Email index on maker_profiles table
+  - Pre-creation check via QueryCommand
+  - Prevents duplicate profiles with same email but different userIds
+
+Idempotency:
+  - Idempotency table with eventId as partition key
+  - TTL: 24 hours
+  - Prevents duplicate processing of same event
+
+================================================================================

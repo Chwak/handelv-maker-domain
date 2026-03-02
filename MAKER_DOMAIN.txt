@@ -1,0 +1,1137 @@
+================================================================================
+MAKER DOMAIN - COMPREHENSIVE specification
+================================================================================
+
+Domain: Maker Domain (Artisan Seller Profile & Trust)
+Purpose: Manage maker profiles, skills, verification status, operations, craft heritage
+Last Updated: 2026-02-07
+Version: 1.0
+
+================================================================================
+1. DOMAIN PURPOSE & BOUNDARIES
+================================================================================
+
+DOMAIN PURPOSE:
+- Manage maker profiles and identity (supply-side)
+- Track maker verification status and trust signals
+- Maintain maker skills, service areas, and capabilities
+- Support maker workshop operations (scheduling, capacity, vacation mode)
+- Document craft heritage and artisan traditions
+- Aggregate and expose maker engagement metrics
+
+WHAT THIS DOMAIN OWNS:
+- Maker profiles and identity data
+- Maker skills and service areas
+- Maker verification status (synced from Verification Domain)
+- Maker operational data (schedules, vacation mode, capacity)
+- Maker craft heritage documentation
+- Maker engagement metrics and analytics
+
+WHAT THIS DOMAIN DOES NOT OWN:
+- User authentication (Auth Essentials Domain)
+- Products (Product Domain)
+- Orders (Order Domain)
+- Payments and payouts (Payment/Payout Domains)
+- Reviews and ratings (Review Trust Domain)
+- Verification documents/submission (Verification Trust Domain)
+
+DOMAIN BOUNDARIES:
+The Maker Domain is responsible for the maker's "supply-side" identity and represents the artisan on the platform. It aggregates trust signals from other domains but does not own the primary sources of those signals.
+
+================================================================================
+2. BUSINESS LOGIC
+================================================================================
+
+2.1 MAKER PROFILE MANAGEMENT:
+- Maker profile created when user registers with maker role
+- Profiles can only be updated by the profile owner
+- Business name is required for marketplace credibility
+- Skills and service areas maintained for discovery
+- Profile completion status affects feature access
+- Profiles must be completed during onboarding (Phase 1)
+
+2.2 VERIFICATION SYSTEM:
+- Identity verification required for marketplace trust
+- Business verification optional but recommended
+- Proof of craft verification showcases skills
+- Verification statuses: not_started, pending, verified, rejected, suspended
+- Suspended makers cannot publish new products
+- Verification status synced from Verification Trust Domain
+
+2.3 SKILLS & SERVICE AREAS:
+- Skills define maker capabilities (craft categories)
+- Service areas define geographic coverage (countries/regions)
+- Used for discovery and matching algorithms
+- Updates trigger search index updates in Discovery Domain
+- Skills should be normalized and categorized
+
+2.4 BUSINESS OPERATIONS:
+- Weekly scheduling for production planning
+- Vacation mode prevents order acceptance
+- Workload indicator (light/moderate/heavy/at_capacity)
+- Custom and rush order preferences
+- Recurring closures for predictable non-availability
+- Peak season indicators for demand management
+
+2.5 CRAFT HERITAGE:
+- Documents maker traditions and artisan lineage
+- Tracks mastery level and years of practice
+- Captures techniques, tools, and cultural significance
+- Supports certification and guild credentials
+- Records apprentice training and teaching
+- Media documentation (videos, photos, articles)
+- Differentiator for artisan marketplace positioning
+
+2.6 ENGAGEMENT & ANALYTICS:
+- Follower counts from Collector Domain events
+- Ratings aggregated from Review Domain events
+- Completed jobs count from Order Domain events
+- Active products count from Product Domain events
+- Message response metrics from Communication Domain
+- Sales and revenue tracking
+- All computed/materialized for fast read access
+
+================================================================================
+3. DATA LAYER DESIGN
+================================================================================
+
+Database: DynamoDB
+Stack Name: maker-domain-stack
+Environment-Specific: Yes (dev, staging, prod)
+
+CURRENT DESIGN (Phase 1):
+Uses three separate tables with different access patterns:
+
+TABLE 1: maker_engagement_facts
+Purpose: Immutable facts about maker operations (append-only log)
+Partition Key: pk = "MAKER#<maker_user_id>"
+Sort Key: sk = "FACT#<fact_type>#<timestamp>#<uuid>"
+
+Attributes:
+- pk (String, PK): "MAKER#<maker_user_id>"
+- sk (String, SK): "FACT#<fact_type>#<timestamp>#<uuid>"
+- fact_type (String): "FOLLOW", "UNFOLLOW", "REPUTATION_EVENT", "PROFILE_SETUP"
+- data (Map): Fact-specific payload
+- timestamp (String): ISO timestamp
+- idempotency_key (String): For deduplication
+- created_at (String): Creation timestamp
+
+GSI1: verification_status (PK), created_at (SK)
+Purpose: Query verified makers
+
+Billing Mode: Pay-per-request
+Stream: NEW_AND_OLD_IMAGES (for event sourcing)
+PITR: Enabled in prod
+Encryption: AWS-managed
+TTL: None
+
+---
+
+TABLE 2: maker_engagement_state
+Purpose: Materialized read-model with current counters
+Partition Key: pk = "MAKER#<maker_user_id>"
+Sort Key: sk = "STATE"
+
+Attributes:
+- pk (String, PK): "MAKER#<maker_user_id>"
+- sk (String, SK): "STATE"
+- maker_user_id (String)
+- follower_count (Number)
+- cached_rating (Number)
+- completed_jobs_count (Number)
+- last_verified_at (String)
+- total_products (Number)
+- active_products (Number)
+- updated_at (String)
+
+Purpose: Fast reads for maker dashboard and profile display
+Updates: From event handlers processing events from other domains
+Billing Mode: Pay-per-request
+TTL: None
+
+---
+
+TABLE 3: maker_engagement_activity
+Purpose: Hot recent activity for feeds and notifications (TTL)
+Partition Key: pk = "MAKER#<maker_user_id>"
+Sort Key: sk = "ACTIVITY#<timestamp>#<uuid>"
+
+Attributes:
+- pk (String, PK): "MAKER#<maker_user_id>"
+- sk (String, SK): "ACTIVITY#<timestamp>#<uuid>"
+- activity_type (String): "FOLLOWED_BY", "REVIEW_RECEIVED", "ORDER_COMPLETED"
+- payload (Map): Denormalized activity data
+- created_at (String)
+- expires_at (Number): Unix timestamp for TTL
+
+TTL: expires_at (30-90 days)
+Billing Mode: Pay-per-request
+Purpose: Feed data, recent activity displays
+Retention: Automatic cleanup via TTL
+
+---
+
+MISSING TABLE (to be created):
+maker_profiles
+Purpose: Source-of-truth for maker profile data
+Attributes: storeName, bio, businessType, location, skills, serviceAreas, verification_status, etc.
+Note: Currently stored in maker_engagement_facts with sk="PROFILE"
+
+MISSING TABLE (to be created):
+maker_craft_heritage
+Purpose: Craft heritage documentation (one-to-many with makers)
+Attributes: heritageId, craftTradition, masteryLevel, techniqueDetails, certifications, media, etc.
+Note: Design needed for multi-record support per maker
+
+MISSING TABLE (to be created):
+maker_analytics
+Purpose: Time-series analytics metrics
+Attributes: profileViews, productViews, salesCount, revenue, avgRating, conversionRate, etc.
+Note: Design needed for daily/weekly aggregation
+
+================================================================================
+4. FRONTEND DATA REQUIREMENTS
+================================================================================
+
+All data in this section is captured from frontend user interactions via APIs.
+
+4.1 INITIAL REGISTRATION (From Auth Flow):
+Source: Sign-up form → Auth Domain → Maker Domain (SNS event)
+
+Data received:
+- userId: Cognito user ID
+- email: User email address
+- username: User username
+- fullName: Composed from firstName + lastName
+- givenName: First name
+- familyName: Last name
+- phoneNumber: Optional phone
+- emailVerified: Boolean
+- emailVerifiedAt: Timestamp
+
+Action: Create initial maker profile in UNVERIFIED state
+Profile starts empty and must be completed during onboarding
+
+---
+
+4.2 MAKER PROFILE SETUP (Onboarding):
+Endpoint: POST /maker/profile/setup
+Frequency: Once per maker during onboarding
+Authentication: Required (can only update own profile)
+
+Input: SetupMakerProfileInput
+- userId: ID! (required, must match authenticated user)
+- storeName: String! (3-100 characters, unique)
+- storeDescription: String! (max 2000 characters, rich text)
+- bio: String! (50-1000 characters, personal story)
+- location: LocationInput! (required)
+  * country: String! (e.g., "USA")
+  * state: String! (e.g., "California")
+  * city: String! (e.g., "San Francisco")
+  * zipCode: String (optional)
+  * timezone: String! (IANA timezone, e.g., "America/Los_Angeles")
+- businessType: BusinessType! ("INDIVIDUAL"|"SOLE_PROPRIETORSHIP"|"LLC"|"CORPORATION")
+- taxId: String (optional, required for payments later)
+- profileImageUrl: String (optional, S3 URL)
+- bannerImageUrl: String (optional, S3 URL)
+- primaryCraft: String! (e.g., "Woodworking", "Ceramics")
+- yearsOfExperience: Int! (0-80 years)
+- acceptCustomOrders: Boolean! (default: true)
+- acceptRushOrders: Boolean! (default: false)
+
+Tables Affected: maker_engagement_facts (PROFILE), maker_engagement_activity
+
+---
+
+4.3 BUSINESS OPERATIONS SETUP:
+Endpoint: POST /maker/operations/setup
+Frequency: Weekly or as needed
+Authentication: Required (can only update own operations)
+
+Input: SetupOperationsInput
+- weekDate: String! (ISO week format: "2026-W05")
+- workingDaysThisWeek: [Int!]! (0-6 for Sun-Sat)
+- hoursPerDay: HoursPerDayInput! (0-24 hours per day)
+- vacationMode: Boolean! (default: false)
+- vacationStartDate: AWSDateTime (ISO date)
+- vacationEndDate: AWSDateTime (ISO date)
+- currentWorkload: Workload! ("LIGHT"|"MODERATE"|"HEAVY"|"AT_CAPACITY")
+- acceptingCustomOrders: Boolean!
+- acceptingRushOrders: Boolean!
+- recurringClosures: [RecurringClosureInput!] (optional)
+- peakSeasonIndicator: Boolean (optional)
+
+Tables Affected: maker_engagement_facts (OPERATIONS), maker_engagement_activity
+
+---
+
+4.4 CRAFT HERITAGE DOCUMENTATION:
+Endpoint: POST /maker/craft-heritage/add
+Frequency: As makers document their heritage
+Authentication: Required (can only document own crafts)
+
+Input: AddCraftHeritageInput
+- craftTradition: String! (3-200 characters)
+- traditionOrigin: TraditionOriginInput! (culture, region, centuriesOld)
+- masteryLevel: MasteryLevel! ("APPRENTICE"|"JOURNEYMAN"|"MASTER"|"GRANDMASTER")
+- yearsOfPractice: Int! (0-80)
+- masterArtisan: MasterArtisanInput (optional, lineage)
+- techniqueDetails: TechniqueDetailsInput! (name, description, tools, difficulty)
+- certifyingBodyOrGuild: CertifyingBodyInput (optional)
+- apprenticesTrained: Int! (0-1000)
+- isTeachingOrAcceptingApprentices: Boolean!
+- mediaDocumentation: [MediaDocumentationInput!] (videos, photos, articles)
+- culturalSignificance: String!
+- modernInfluences: [String!] (optional)
+
+Tables Affected: maker_craft_heritage (to be created)
+
+---
+
+4.5 PROFILE UPDATES (Ongoing):
+Endpoint: PUT /maker/profile/update
+Frequency: As needed
+Authentication: Required (can only update own profile)
+
+Input: UpdateMakerProfileInput
+- storeName: String (optional, 3-100 characters)
+- storeDescription: String (optional, max 2000 characters)
+- bio: String (optional, 50-1000 characters)
+- location: LocationInput (optional)
+- profileImageUrl: String (optional, S3 URL)
+- bannerImageUrl: String (optional, S3 URL)
+- acceptCustomOrders: Boolean (optional)
+- acceptRushOrders: Boolean (optional)
+
+Validation: At least one field must be provided
+Authorization: User can only update own profile
+
+Tables Affected: maker_engagement_facts (PROFILE)
+Events Published: MakerProfileUpdated
+
+---
+
+4.6 SKILLS UPDATES:
+Endpoint: PUT /maker/skills
+Frequency: As needed
+Authentication: Required
+
+Input: UpdateSkillsInput
+- userId: ID! (must match authenticated user)
+- primaryCraft: String! (main craft, used for profile display)
+
+Validation:
+- Must be valid craft category
+- Replaces existing skills
+- No duplicates
+
+Tables Affected: maker_engagement_facts (PROFILE)
+Events Published: MakerSkillsUpdated
+
+================================================================================
+5. INPUT VALIDATION RULES
+================================================================================
+
+5.1 UNIVERSAL VALIDATION RULES:
+
+ID VALIDATION:
+- Must be valid UUID v4 or domain-specific format
+- Cannot be null, empty, or contain only whitespace
+- Cannot exceed 200 characters
+- Case-sensitive comparison for user IDs
+
+STRING VALIDATION:
+- Trim leading/trailing whitespace
+- Reject null bytes and control characters
+- Validate UTF-8 encoding
+- Check length limits to prevent DoS
+- Max field length: 5000 characters (unless specified)
+
+ARRAY VALIDATION:
+- Cannot be null
+- Check min/max length
+- Validate each element
+- Remove duplicates (case-insensitive where applicable)
+
+AUTHENTICATION & AUTHORIZATION:
+- All mutations require valid JWT token
+- Users can only modify their own data
+- Admins can modify any user's data
+- MAKER role required for maker-specific operations
+- Catch ConditionalCheckFailedException for conflicts
+
+RATE LIMITING:
+- Update profile: 10/hour per user
+- Update skills: 10/hour per user
+- Submit verification: 3/day per user per type
+- Setup operations: 10/week per user
+
+---
+
+5.2 MUTATION: updateMakerProfile
+
+Input: UpdateMakerProfileInput!
+- storeName (optional): String
+  * Minimum: 2 chars, Maximum: 200 chars
+  * Cannot be all whitespace
+  * Trim leading/trailing spaces
+  * Allow: letters, numbers, spaces, hyphens, apostrophes, ampersands
+  * Must contain at least one letter
+  * Validation: /^[a-zA-Z0-9\s\-'&]+$/ with min 2, max 200
+
+- bio (optional): String
+  * Minimum: 50 chars, Maximum: 2000 chars
+  * Cannot be all whitespace
+  * Trim leading/trailing spaces
+  * Allow: letters, numbers, punctuation, markdown
+  * Must contain at least 10 words
+  * Validation: word count >= 10, length 50-2000
+
+- serviceAreas (optional): [String!]
+  * Must be non-empty array
+  * Maximum: 50 items
+  * Each item: 2-100 characters
+  * Cannot be all whitespace
+  * Should be valid country/state/city name
+  * No duplicates (case-insensitive)
+  * Validation: Validate against geographic database
+
+Business Rules:
+- At least one field must be provided
+- Cannot update userId (immutable)
+- User must have MAKER role
+- Profile updates do not affect verification status
+- Empty updates rejected
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot update other user's profile
+- 422 Unprocessable Entity: Validation failed (detailed errors)
+
+---
+
+5.3 MUTATION: updateSkills
+
+Input: UpdateSkillsInput!
+- userId: ID! (required)
+  * Must match authenticated user's ID
+  * Cannot be null or empty
+
+- skills: [String!]! (required)
+  * Minimum: 1 skill
+  * Maximum: 50 skills
+  * Each skill: 2-100 characters
+  * Cannot be all whitespace
+  * Trim leading/trailing spaces
+  * Allow: letters, numbers, spaces, hyphens
+  * No duplicates (case-insensitive)
+  * Skills normalized to title case ("Pottery" not "pottery" or "POTTERY")
+  * Validate against approved skills list
+
+Business Rules:
+- User must have MAKER role
+- Skills replace existing skills (not append)
+- Used for search and matching
+- Updates trigger Discovery reindex
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot update other user's skills
+- 422 Unprocessable Entity: Validation failed
+
+---
+
+5.4 MUTATION: setupOperations
+
+Input: SetupOperationsInput!
+- weekDate: String! (required)
+  * Format: ISO week "YYYY-Www" (e.g., "2026-W05")
+  * Cannot be null or empty
+  * Must be valid week
+
+- workingDaysThisWeek: [Int!]! (required)
+  * Array of 0-6 for Sun-Sat
+  * Must contain at least one day (or be empty for vacation)
+  * No duplicates
+  * No negative numbers
+
+- hoursPerDay: HoursPerDayInput! (required)
+  * Each day: 0-24 hours
+  * All values must be integers
+  * Cannot be null
+
+- vacationMode: Boolean! (required)
+  * If true, vacationStartDate and vacationEndDate required
+  * vacationEndDate must be after vacationStartDate
+
+- currentWorkload: Workload! (required)
+  * Must be one of: "LIGHT", "MODERATE", "HEAVY", "AT_CAPACITY"
+  * Case-sensitive
+
+- acceptingCustomOrders: Boolean! (required)
+
+- acceptingRushOrders: Boolean! (required)
+
+Business Rules:
+- Cannot accept orders if vacationMode=true
+- workload=AT_CAPACITY should disable custom/rush orders
+- Capacity limits checking logic
+- Updates affect Product Domain (via events)
+
+---
+
+5.5 MUTATION: submitVerification
+
+Input: SubmitVerificationInput!
+- makerUserId: ID! (required)
+  * Must match authenticated user's ID
+  * Cannot be null or empty
+
+- verificationType: VerificationType! (required)
+  * Must be: "IDENTITY" | "BUSINESS" | "PROOF_OF_CRAFT"
+  * Case-sensitive enum
+
+- documentUrl: String! (required)
+  * Must be valid HTTPS URL
+  * Must be from allowed domains (S3, CDN)
+  * Maximum: 500 characters
+  * Must be accessible
+  * File format: PDF, JPG, PNG only
+  * File size: Maximum 10MB
+  * Must be presigned S3 URL with expiry
+
+Validation Detail:
+- Document URL regex validation
+- MIME type checking
+- File size verification
+- Accessibility check (optional, can be async)
+
+Business Rules:
+- User must have MAKER role
+- Cannot submit duplicate verification of same type (if pending)
+- Verification status set to PENDING
+- Document stored securely
+- Verification processed asynchronously
+- Cannot submit more than 3/day per verification type
+
+Error Responses:
+- 400 Bad Request: Invalid URL format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot submit for other user
+- 404 Not Found: Document not accessible
+- 409 Conflict: Already submitted same verification (pending)
+- 422 Unprocessable Entity: Document validation failed
+
+---
+
+5.6 QUERY: getMakerProfile
+
+Input:
+- userId: ID! (optional, defaults to authenticated user)
+  * Valid UUID format
+  * Cannot be null if provided
+
+Business Rules:
+- Public profiles accessible to all authenticated users
+- Private fields only to owner or admin
+- Returns 404 if profile doesn't exist
+
+---
+
+5.7 ADDITIONAL FIELD VALIDATION:
+
+TIMEZONE:
+- Must be valid IANA timezone string
+- Examples: "America/Los_Angeles", "Europe/London", "Asia/Tokyo"
+- Case-sensitive
+- No abbreviations (e.g., "PST" invalid)
+
+BUSINESS TYPE:
+- Must be one of enum: "INDIVIDUAL", "SOLE_PROPRIETORSHIP", "LLC", "CORPORATION"
+- Case-sensitive
+- No partial matches
+
+YEARS OF EXPERIENCE:
+- Must be integer
+- Range: 0-80
+- No negative values
+- No decimals
+
+MASTERY LEVEL:
+- Must be one of: "APPRENTICE", "JOURNEYMAN", "MASTER", "GRANDMASTER"
+- Case-sensitive
+- Validatable against maker's years of practice (optional logic)
+
+CULTURE/TRADITION:
+- Must be recognized cultural tradition
+- 3-200 characters
+- Cannot be generic
+
+================================================================================
+6. INTER-DOMAIN DATA REQUIREMENTS
+================================================================================
+
+All data in this section is consumed from other domains via events (SNS, SQS, EventBridge).
+
+6.1 EVENTS CONSUMED FROM OTHER DOMAINS:
+
+FROM AUTH DOMAIN:
+Event: UserRegistrationComplete
+Transport: Auth Domain → SNS Topic → SQS Queue → Maker Domain Lambda
+Trigger: User completes email verification with maker mode enabled
+Frequency: Per new maker user
+
+Payload:
+{
+  event: "UserRegistrationComplete",
+  userId: string,
+  email: string,
+  username: string,
+  fullName: string,
+  givenName: string,
+  familyName: string,
+  phoneNumber: string (optional),
+  emailVerified: boolean,
+  emailVerifiedAt: string,
+  makerEnabled: boolean,
+  collectorEnabled: boolean,
+}
+
+Action: Create initial maker profile in UNVERIFIED state
+Table: maker_engagement_facts (PROFILE record)
+Business Logic:
+  - Only process if makerEnabled === true
+  - Create minimal profile
+  - Set status to "onboarding_pending"
+  - User must complete profile via frontend API
+  - Idempotent: check if profile exists before creating
+
+---
+
+FROM ORDER DOMAIN:
+Event: OrderCompleted
+Transport: EventBridge
+Trigger: Order reaches completed status
+Frequency: Per completed order
+
+Payload:
+{
+  event: "OrderCompleted",
+  orderId: string,
+  makerUserId: string,
+  productIds: [string],
+  totalAmount: number,
+  completedAt: string,
+  buyerUserId: string,
+}
+
+Action: Update maker analytics (Phase 2)
+Table: maker_engagement_state, maker_analytics
+Updates:
+  - completed_jobs_count ++
+  - total_sales ++
+  - revenue += totalAmount
+  - avg_order_value = total_revenue / completed_jobs_count
+  - Update conversion_rate
+  - Add to activity feed
+
+---
+
+FROM REVIEW DOMAIN:
+Event: ReviewCreated
+Transport: EventBridge
+Trigger: Collector submits review for maker's product
+Frequency: Per review
+
+Payload:
+{
+  event: "ReviewCreated",
+  reviewId: string,
+  makerUserId: string,
+  productId: string,
+  rating: number (1-5),
+  reviewerUserId: string,
+  createdAt: string,
+}
+
+Action: Update maker analytics and profile
+Tables: maker_engagement_state, maker_engagement_activity
+Updates:
+  - new_reviews_count ++
+  - total_reviews ++
+  - average_rating = (sum of all ratings) / total_reviews
+  - last_reviewed_at = createdAt
+  - Add to activity feed ("ReviewReceived")
+
+---
+
+FROM PRODUCT DOMAIN:
+Event: ProductPublished
+Transport: EventBridge
+Trigger: Maker publishes a new product
+Frequency: Per published product
+
+Payload:
+{
+  event: "ProductPublished",
+  productId: string,
+  makerUserId: string,
+  categoryId: string,
+  publishedAt: string,
+}
+
+Action: Update maker analytics
+Table: maker_engagement_state
+Updates:
+  - active_products_count ++
+  - total_products ++
+
+---
+
+FROM PRODUCT DOMAIN:
+Event: ProductSoldOut
+Transport: EventBridge
+Trigger: Product inventory reaches zero
+Frequency: Per soldout event
+
+Payload:
+{
+  event: "ProductSoldOut",
+  productId: string,
+  makerUserId: string,
+  soldOutAt: string,
+}
+
+Action: Update maker analytics
+Table: maker_engagement_state
+Updates:
+  - active_products_count --
+  - sold_out_products_count ++
+
+---
+
+FROM COLLECTOR DOMAIN:
+Event: MakerFollowed
+Transport: EventBridge
+Trigger: Collector follows a maker
+Frequency: Per follow action
+
+Payload:
+{
+  event: "MakerFollowed",
+  makerUserId: string,
+  collectorUserId: string,
+  followedAt: string,
+}
+
+Action: Update maker engagement
+Tables: maker_engagement_facts (FACT), maker_engagement_state
+Updates:
+  - follower_count ++
+  - Create activity record
+  - Add to activity feed
+
+---
+
+FROM COLLECTOR DOMAIN:
+Event: MakerUnfollowed
+Transport: EventBridge
+Trigger: Collector unfollows a maker
+Frequency: Per unfollow action
+
+Payload:
+{
+  event: "MakerUnfollowed",
+  makerUserId: string,
+  collectorUserId: string,
+  unfollowedAt: string,
+}
+
+Action: Update maker engagement
+Table: maker_engagement_state
+Updates:
+  - follower_count --
+
+---
+
+FROM COMMUNICATION DOMAIN:
+Event: MessageReceived
+Transport: EventBridge
+Trigger: Collector messages a maker
+Frequency: Per message
+
+Payload:
+{
+  event: "MessageReceived",
+  conversationId: string,
+  makerUserId: string,
+  senderUserId: string,
+  receivedAt: string,
+  requiresResponse: boolean,
+}
+
+Action: Track for response metrics
+Table: maker_engagement_activity
+Use Case: Calculate message response time and response rate
+
+---
+
+FROM VERIFICATION DOMAIN:
+Event: MakerVerified
+Transport: EventBridge
+Trigger: Admin approves maker verification
+Frequency: Per verification approval
+
+Payload:
+{
+  event: "MakerVerified",
+  makerUserId: string,
+  verificationType: "IDENTITY" | "BUSINESS" | "PROOF_OF_CRAFT",
+  verifiedAt: string,
+  verifierUserId: string,
+}
+
+Action: Update maker verification status
+Table: maker_engagement_facts (PROFILE), Events to produce
+Updates:
+  - Set identityVerificationStatus = "VERIFIED"
+  - Set verifiedAt timestamp
+  - Publish MakerVerified event downstream
+
+---
+
+6.2 EVENTS EMITTED BY MAKER DOMAIN:
+
+These events are published by Maker Domain and consumed by other domains.
+
+EVENT: MakerProfileCreated
+Trigger: New maker completes registration (via Auth event)
+Consumers: Discovery, Notification
+Transport: EventBridge
+
+Payload:
+{
+  event: "MakerProfileCreated",
+  makerUserId: string,
+  storeName: string,
+  primaryCraft: string,
+  location: { country, state, city },
+  createdAt: string,
+}
+
+Consumer Actions:
+  - Discovery: Index new maker for search
+  - Notification: Send welcome email
+
+---
+
+EVENT: MakerProfileUpdated
+Trigger: Maker updates profile via API
+Consumers: Discovery, Product
+Transport: EventBridge
+
+Payload:
+{
+  event: "MakerProfileUpdated",
+  makerUserId: string,
+  updatedFields: [string],  // ["storeName", "bio"]
+  updatedAt: string,
+}
+
+Consumer Actions:
+  - Discovery: Reindex maker
+  - Product: Update maker info on existing products
+
+---
+
+EVENT: MakerVacationModeChanged
+Trigger: Maker enables/disables vacation mode
+Consumers: Product, Order, Notification
+Transport: EventBridge
+
+Payload:
+{
+  event: "MakerVacationModeChanged",
+  makerUserId: string,
+  vacationMode: boolean,
+  vacationStartDate: string (optional),
+  vacationEndDate: string (optional),
+  changedAt: string,
+}
+
+Consumer Actions:
+  - Product: Prevent order acceptance
+  - Order: Pause new order acceptance
+  - Notification: Notify followers
+
+---
+
+EVENT: MakerOperationsUpdated
+Trigger: Maker updates operations/capacity
+Consumers: Product, Order
+Transport: EventBridge
+
+Payload:
+{
+  event: "MakerOperationsUpdated",
+  makerUserId: string,
+  currentWorkload: string,
+  acceptingCustomOrders: boolean,
+  acceptingRushOrders: boolean,
+  updatedAt: string,
+}
+
+---
+
+EVENT: MakerVerified (re-published)
+Trigger: Received from Verification Domain
+Consumers: Product, Discovery
+Transport: EventBridge
+
+Purpose: Notify downstream domains of maker verification status change
+
+---
+
+EVENT: CraftHeritageDocumented
+Trigger: Maker adds craft heritage
+Consumers: Discovery, Profile
+Transport: EventBridge
+
+Payload:
+{
+  event: "CraftHeritageDocumented",
+  makerUserId: string,
+  heritageId: string,
+  craftTradition: string,
+  masteryLevel: string,
+  documentedAt: string,
+}
+
+Consumer Actions:
+  - Discovery: Include heritage in profile rich results
+  - Profile: Display craft heritage on public profile
+
+================================================================================
+7. WORKFLOWS
+================================================================================
+
+WORKFLOW 1: NEW MAKER REGISTRATION AND ONBOARDING
+
+1. User signs up via Auth Domain (mobile/web)
+   → Auth Domain verifies email
+   → Auth Domain publishes UserRegistrationComplete event
+
+2. Maker Domain Lambda (new-maker-from-auth) consumes event
+   → Validates makerEnabled flag
+   → Creates initial maker_profiles record with minimal data
+   → Sets profile status to "onboarding_pending"
+   → Returns profile created (can be null for some fields)
+
+3. Frontend detects onboarding required
+   → Redirects to maker onboarding form
+   → User fills in profile details
+
+4. User submits profile setup
+   → Frontend calls POST /maker/profile/setup
+   → Lambda validates all inputs
+   → Lambda creates/updates maker profile in maker_engagement_facts
+   → Lambda creates activity record
+   → Triggers atomic transaction with version conflict detection
+
+5. Maker Domain publishes MakerProfileCreated event
+   → Discovery Domain indexes maker
+   → Notification Domain sends welcome email
+
+6. Frontend detects profile complete
+   → Maker can now publish products
+   → Maker can setup operations/capacity
+
+---
+
+WORKFLOW 2: MAKER PROFILE UPDATE
+
+1. Maker navigates to profile settings
+2. Maker modifies profile (storeName, bio, location, etc.)
+3. Frontend calls PUT /maker/profile/update
+4. Lambda validates inputs against rules
+5. Lambda checks authorization (user === authenticated user)
+6. Lambda updates maker_engagement_facts
+7. Lambda creates activity record
+8. Lambda publishes MakerProfileUpdated event
+9. Discovery Domain reindexes maker
+10. Product Domain updates maker info on existing products
+
+---
+
+WORKFLOW 3: WEEKLY OPERATIONS SETUP
+
+1. Maker navigates to operations/scheduling
+2. Maker sets weekly schedule (working days/hours)
+3. Maker sets capacity (light/moderate/heavy/at capacity)
+4. Maker toggles vacation mode if needed
+5. Frontend calls POST /maker/operations/setup
+6. Lambda validates inputs
+7. Lambda stores in maker_engagement_facts (OPERATIONS record)
+8. Lambda publishes MakerOperationsUpdated event
+9. Product Domain receives event → prevents order placement if vacation/at capacity
+
+---
+
+WORKFLOW 4: VERIFICATION SUBMISSION
+
+1. Maker navigates to verification section
+2. Maker selects verification type (IDENTITY / BUSINESS / PROOF_OF_CRAFT)
+3. Maker uploads document via S3 presigned URL endpoint
+4. Maker submits verification
+5. Frontend calls mutation submitVerification
+6. Lambda validates inputs (document URL, file format, size)
+7. Lambda creates verification record
+8. Lambda publishes VerificationSubmitted event
+9. Verification Domain processes verification asynchronously
+10. Upon approval, Verification Domain publishes MakerVerified event
+11. Maker Domain catches event, updates profile verification_status
+12. Maker Domain publishes MakerVerified event to downstream
+
+---
+
+WORKFLOW 5: CRAFT HERITAGE DOCUMENTATION
+
+1. Maker navigates to craft heritage section
+2. Maker documents their tradition (name, origin, mastery, techniques)
+3. Maker uploads media (videos, photos, articles)
+4. Frontend calls mutation addCraftHeritage
+5. Lambda validates craft tradition and media
+6. Lambda stores in maker_craft_heritage table
+7. Lambda publishes CraftHeritageDocumented event
+8. Discovery Domain includes heritage in profile scoring
+9. Public profile displays craft heritage with rich media
+
+================================================================================
+8. PHASE 1 DATA REQUIREMENTS (DETAILED)
+================================================================================
+
+This section captures the complete Phase 1 data model with all fields and validation.
+
+TIER 1: ESSENTIAL FIELDS (Must have for Phase 1)
+- userId (from Auth)
+- email (from Auth)
+- storeName (from frontend)
+- primaryCraft (from frontend)
+- bio (from frontend)
+- location (from frontend)
+- profileImageUrl (from frontend)
+- verification_status (from Verification Domain or Maker Domain)
+
+TIER 2: OPERATIONAL FIELDS (Should have by Phase 1 end)
+- yearsOfExperience
+- businessType
+- acceptCustomOrders
+- acceptRushOrders
+- workingDaysThisWeek
+- hoursPerDay
+- currentWorkload
+- vacationMode
+
+TIER 3: ANALYTICS FIELDS (Phase 2, but schema includes)
+- totalProducts
+- activeProducts
+- completedJobs
+- averageRating
+- totalReviews
+- totalSales
+- revenue
+- followerCount
+
+TIER 4: ADVANCED FIELDS (Phase 2+)
+- craftHeritage (separate table)
+- apprenticesTrained
+- certifications
+- guilds
+- media documentation
+
+================================================================================
+9. API ENDPOINTS SUMMARY
+================================================================================
+
+QUERIES:
+- GET /maker/profile - Get authenticated maker's profile
+- GET /maker/profile/{userId} - Get public maker profile
+- GET /maker/operations/{weekDate} - Get operations for week
+- GET /maker/verification-status - Get verification status
+- GET /maker/craft-heritage - List craft heritage
+- GET /maker/analytics - Get analytics dashboard
+
+MUTATIONS:
+- POST /maker/profile/setup - Initial profile setup
+- PUT /maker/profile/update - Update profile
+- PUT /maker/skills - Update skills
+- POST /maker/operations/setup - Setup weekly operations
+- PUT /maker/operations/update - Update operations
+- PUT /maker/vacation-mode - Set vacation mode
+- POST /maker/craft-heritage/add - Add craft heritage
+- PUT /maker/craft-heritage/{id}/update - Update craft heritage
+- DELETE /maker/craft-heritage/{id} - Delete craft heritage
+- POST /maker/verification/submit - Submit verification
+
+SUBSCRIPTIONS:
+- onMakerProfileUpdated
+- onMakerVerified
+- onOperationsUpdated
+
+================================================================================
+10. ERROR HANDLING
+================================================================================
+
+All validation errors return structured error responses:
+
+{
+  "errors": [
+    {
+      "message": "Validation failed",
+      "extensions": {
+        "code": "VALIDATION_ERROR",
+        "field": "storeName",
+        "reason": "storeName must be 3-100 characters"
+      }
+    }
+  ]
+}
+
+Error Codes:
+- VALIDATION_ERROR (422): Invalid input format or values
+- UNAUTHORIZED (401): Not authenticated
+- FORBIDDEN (403): Insufficient permissions
+- NOT_FOUND (404): Resource not found
+- CONFLICT (409): State conflict (e.g., duplicate submission)
+- RATE_LIMITED (429): Rate limit exceeded
+- INTERNAL_ERROR (500): Unexpected server error
+
+================================================================================
+11. KNOWN ISSUES & TODOs
+================================================================================
+
+CRITICAL TODOs:
+1. EventBridge publishing not implemented (MakerProfileCreated)
+2. Cross-domain event handlers not implemented
+3. Craft heritage Lambda handlers missing
+4. Analytics table design needed
+5. GraphQL resolver configuration incomplete
+
+HIGH PRIORITY:
+6. Input sanitization utility needed
+7. Error handling standardization needed
+8. Structured JSON logging implementation
+9. Authorization helper consistency
+10. Verification Lambda handlers missing
+
+MEDIUM PRIORITY:
+11. TTL configuration for activity records
+12. Idempotency store implementation
+13. Race condition fix for profile updates
+14. Analytics aggregation logic
+
+================================================================================
+END OF COMPREHENSIVE SPECIFICATION
+================================================================================

@@ -96,6 +96,157 @@ Payload Schema: TBD
 Consumers: product-domain, shelf-discovery-domain, notification-domain
 
 ================================================================================
+COMMISSION EVENTS (hand-made.maker-domain)
+================================================================================
+
+Event: commission.proposal.submitted.v1
+Status: ✅ IMPLEMENTED
+--------------------------------------------------------------------------------
+Description:
+  Published when a collector submits a Vision Brief commission proposal to a maker.
+
+Trigger: submitCommissionProposal mutation (submit-proposal-lambda)
+Republish Lambda: maker-domain-republish-lambda → outbox table
+
+Payload Schema:
+  {
+    "proposalId": "string (UUID)",
+    "makerId": "string (UUID)",
+    "collectorId": "string (UUID)",
+    "collectorDisplayName": "string | null",
+    "desiredMaterial": "string",
+    "submittedAt": "string (ISO8601)"
+  }
+
+Consumers:
+  - notification-domain: notifies maker of new Vision Brief
+
+--------------------------------------------------------------------------------
+
+Event: commission.proposal.accepted.v1
+Status: ✅ IMPLEMENTED
+--------------------------------------------------------------------------------
+Description:
+  Published when a maker accepts a Vision Brief proposal (moves to IN_CREATION).
+
+Trigger: updateProposalStatus mutation with action=ACCEPT
+Republish Lambda: maker-domain-republish-lambda → outbox table
+
+Payload Schema:
+  {
+    "proposalId": "string",
+    "makerId": "string",
+    "collectorId": "string",
+    "action": "ACCEPT",
+    "newStatus": "IN_CREATION",
+    "updatedAt": "string (ISO8601)"
+  }
+
+Consumers:
+  - notification-domain: notifies collector their commission is now In Creation
+
+--------------------------------------------------------------------------------
+
+Event: commission.proposal.declined.v1
+Status: ✅ IMPLEMENTED
+--------------------------------------------------------------------------------
+Description:
+  Published when a maker declines a Vision Brief proposal.
+
+Trigger: updateProposalStatus mutation with action=DECLINE
+Republish Lambda: maker-domain-republish-lambda → outbox table
+
+Payload Schema:
+  {
+    "proposalId": "string",
+    "makerId": "string",
+    "collectorId": "string",
+    "action": "DECLINE",
+    "newStatus": "DECLINED",
+    "declineReason": "string | null",
+    "updatedAt": "string (ISO8601)"
+  }
+
+Consumers:
+  - notification-domain: notifies collector with decline message
+
+--------------------------------------------------------------------------------
+
+Event: commission.proposal.refinement_requested.v1
+Status: ✅ IMPLEMENTED
+--------------------------------------------------------------------------------
+Description:
+  Published when a maker requests refinement on a Vision Brief before accepting.
+
+Trigger: updateProposalStatus mutation with action=REQUEST_REFINEMENT
+Republish Lambda: maker-domain-republish-lambda → outbox table
+
+Payload Schema:
+  {
+    "proposalId": "string",
+    "makerId": "string",
+    "collectorId": "string",
+    "action": "REQUEST_REFINEMENT",
+    "newStatus": "REFINEMENT_REQUESTED",
+    "refinementNote": "string | null",
+    "updatedAt": "string (ISO8601)"
+  }
+
+Consumers:
+  - notification-domain: notifies collector of refinement request
+
+--------------------------------------------------------------------------------
+
+Event: commission.milestone.clip.added.v1
+Status: ✅ IMPLEMENTED
+--------------------------------------------------------------------------------
+Description:
+  Published when a maker posts a new Creation Portal chapter/clip during commission.
+
+Trigger: addMilestoneClip mutation (add-milestone-clip-lambda)
+Republish Lambda: maker-domain-republish-lambda → outbox table
+
+Payload Schema:
+  {
+    "clipId": "string (UUID)",
+    "proposalId": "string",
+    "makerId": "string",
+    "collectorId": "string",
+    "chapter": "string",
+    "createdAt": "string (ISO8601)"
+  }
+
+Consumers:
+  - notification-domain: notifies collector a new chapter was added to their Masterpiece
+
+================================================================================
+CONSUMED EVENTS
+================================================================================
+
+Event: commission.proposal.ready_for_shelf.v1
+Status: ✅ IMPLEMENTED
+--------------------------------------------------------------------------------
+Description:
+  Published when a maker marks a commission as Ready for Shelf, linking the finished
+  product and transitioning the proposal from IN_CREATION to READY_FOR_SHELF.
+
+Trigger: updateProposalStatus mutation with action=MARK_READY (update-proposal-status-lambda)
+Republish Lambda: maker-domain-republish-lambda → outbox table
+
+Payload Schema:
+  {
+    "proposalId": "string",
+    "makerId": "string",
+    "collectorId": "string",
+    "productId": "string",
+    "newStatus": "READY_FOR_SHELF",
+    "updatedAt": "string (ISO8601)"
+  }
+
+Consumers:
+  - product-domain: stamps PassportSeal on the linked product
+
+================================================================================
 CONSUMED EVENTS
 ================================================================================
 

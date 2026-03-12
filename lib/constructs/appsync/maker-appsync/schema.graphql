@@ -19,7 +19,12 @@ type Query @aws_cognito_user_pools {
   # Analytics queries
   getAnalyticsDashboard: AnalyticsMetrics
   getAnalyticsHistory(fromDate: String!, toDate: String!): AnalyticsHistoryConnection
-  
+
+  # Commission queries
+  listProposalsForMaker(status: ProposalStatus, limit: Int, nextToken: String): CommissionProposalConnection
+  listProposalsForCollector(limit: Int, nextToken: String): CommissionProposalConnection
+  getProposal(proposalId: ID!): CommissionProposal
+  listMilestoneClips(proposalId: ID!, limit: Int, nextToken: String): MilestoneClipConnection
 }
 
 # =====================================================
@@ -41,7 +46,11 @@ type Mutation @aws_cognito_user_pools {
   addCraftHeritage(input: AddCraftHeritageInput!): CraftHeritage
   updateCraftHeritage(input: UpdateCraftHeritageInput!): CraftHeritage
   deleteCraftHeritage(heritageId: ID!): Boolean
-  
+
+  # Commission mutations
+  submitCommissionProposal(input: SubmitProposalInput!): CommissionProposal
+  updateProposalStatus(input: UpdateProposalStatusInput!): CommissionProposal
+  addMilestoneClip(input: AddMilestoneClipInput!): MilestoneClip
 }
 
 # =====================================================
@@ -52,6 +61,10 @@ type Subscription @aws_cognito_user_pools {
     @aws_subscribe(mutations: ["setupMakerProfile", "updateMakerProfile", "updateSkills"])
   onOperationsUpdated(makerUserId: ID!): BusinessOperations
     @aws_subscribe(mutations: ["setupOperations", "updateOperations", "setVacationMode"])
+  onProposalStatusUpdated(proposalId: ID!): CommissionProposal
+    @aws_subscribe(mutations: ["updateProposalStatus"])
+  onMilestoneClipAdded(proposalId: ID!): MilestoneClip
+    @aws_subscribe(mutations: ["addMilestoneClip"])
 }
 
 # =====================================================
@@ -761,5 +774,95 @@ input DisplayPreferencesInput {
   timezone: String
   dateFormat: String
   timeFormat: String
+}
+
+# =====================================================
+# ENUMS - COMMISSION
+# =====================================================
+enum ProposalStatus {
+  PROPOSAL_PENDING
+  IN_CREATION
+  REFINEMENT_REQUESTED
+  READY_FOR_SHELF
+  DECLINED
+  FULFILLED
+}
+
+enum ProposalAction {
+  ACCEPT
+  DECLINE
+  REQUEST_REFINEMENT
+  MARK_READY
+}
+
+# =====================================================
+# TYPES - COMMISSION
+# =====================================================
+type CommissionProposal {
+  proposalId: ID!
+  makerId: ID!
+  collectorId: ID!
+  collectorDisplayName: String
+  status: ProposalStatus!
+  desiredMaterial: String!
+  story: String!
+  dimensions: String!
+  moodImageKey: String
+  declineReason: String
+  refinementNote: String
+  passportSealEnabled: Boolean!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  acceptedAt: AWSDateTime
+  completedAt: AWSDateTime
+  productId: ID
+}
+
+type CommissionProposalConnection {
+  items: [CommissionProposal!]!
+  nextToken: String
+}
+
+type MilestoneClip {
+  proposalId: ID!
+  clipKey: String!
+  clipId: ID!
+  makerId: ID!
+  chapter: String!
+  note: String!
+  mediaKey: String
+  createdAt: AWSDateTime!
+}
+
+type MilestoneClipConnection {
+  items: [MilestoneClip!]!
+  nextToken: String
+}
+
+# =====================================================
+# INPUTS - COMMISSION
+# =====================================================
+input SubmitProposalInput {
+  makerId: ID!
+  desiredMaterial: String!
+  story: String!
+  dimensions: String!
+  moodImageKey: String
+  collectorDisplayName: String
+}
+
+input UpdateProposalStatusInput {
+  proposalId: ID!
+  action: ProposalAction!
+  declineReason: String
+  refinementNote: String
+  productId: ID
+}
+
+input AddMilestoneClipInput {
+  proposalId: ID!
+  chapter: String!
+  note: String!
+  mediaKey: String
 }
 

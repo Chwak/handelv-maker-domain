@@ -17,6 +17,13 @@ import { GetMakerSettingsLambdaConstruct } from "./constructs/lambda/maker/get-m
 import { UpdateMakerSettingsLambdaConstruct } from "./constructs/lambda/maker/update-maker-settings/update-maker-settings-lambda-construct";
 import { MakerAppSyncResolversConstruct } from "./constructs/appsync/maker-appsync-resolvers/maker-appsync-resolvers-construct";
 import { importEventBusFromSharedInfra } from "./utils/eventbridge-helper";
+// Commission feature
+import { SubmitProposalLambdaConstruct } from "./constructs/lambda/commission/submit-proposal/submit-proposal-lambda-construct";
+import { ListProposalsMakerLambdaConstruct } from "./constructs/lambda/commission/list-proposals-maker/list-proposals-maker-lambda-construct";
+import { ListProposalsCollectorLambdaConstruct } from "./constructs/lambda/commission/list-proposals-collector/list-proposals-collector-lambda-construct";
+import { GetProposalLambdaConstruct } from "./constructs/lambda/commission/get-proposal/get-proposal-lambda-construct";
+import { UpdateProposalStatusLambdaConstruct } from "./constructs/lambda/commission/update-proposal-status/update-proposal-status-lambda-construct";
+import { AddMilestoneClipLambdaConstruct } from "./constructs/lambda/commission/add-milestone-clip/add-milestone-clip-lambda-construct";
 
 export class MakerDomainStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DomainStackProps) {
@@ -158,6 +165,60 @@ export class MakerDomainStack extends cdk.Stack {
       removalPolicy,
     });
 
+    // ── Commission feature Lambdas ────────────────────────────────
+    const submitProposalLambda = new SubmitProposalLambdaConstruct(this, "SubmitProposalLambda", {
+      environment: props.environment,
+      regionCode: props.regionCode,
+      commissionProposals: makerTables.commissionProposals,
+      outboxTable: outboxTable.table,
+      removalPolicy,
+    });
+
+    const listProposalsMakerLambda = new ListProposalsMakerLambdaConstruct(this, "ListProposalsMakerLambda", {
+      environment: props.environment,
+      regionCode: props.regionCode,
+      commissionProposals: makerTables.commissionProposals,
+      removalPolicy,
+    });
+
+    const listProposalsCollectorLambda = new ListProposalsCollectorLambdaConstruct(this, "ListProposalsCollectorLambda", {
+      environment: props.environment,
+      regionCode: props.regionCode,
+      commissionProposals: makerTables.commissionProposals,
+      removalPolicy,
+    });
+
+    const getProposalLambda = new GetProposalLambdaConstruct(this, "GetProposalLambda", {
+      environment: props.environment,
+      regionCode: props.regionCode,
+      commissionProposals: makerTables.commissionProposals,
+      removalPolicy,
+    });
+
+    const updateProposalStatusLambda = new UpdateProposalStatusLambdaConstruct(this, "UpdateProposalStatusLambda", {
+      environment: props.environment,
+      regionCode: props.regionCode,
+      commissionProposals: makerTables.commissionProposals,
+      outboxTable: outboxTable.table,
+      removalPolicy,
+    });
+
+    const addMilestoneClipLambda = new AddMilestoneClipLambdaConstruct(this, "AddMilestoneClipLambda", {
+      environment: props.environment,
+      regionCode: props.regionCode,
+      commissionProposals: makerTables.commissionProposals,
+      milestoneClips: makerTables.milestoneClips,
+      outboxTable: outboxTable.table,
+      removalPolicy,
+    });
+
+    // Export commission table names to SSM
+    new ssm.StringParameter(this, 'CommissionProposalsTableNameParameter', {
+      parameterName: `/${props.environment}/maker-domain/dynamodb/commission-proposals-table-name`,
+      stringValue: makerTables.commissionProposals.tableName,
+      description: 'Commission Proposals DynamoDB Table Name',
+    });
+
     // Create AppSync resolvers
     const makerResolvers = new MakerAppSyncResolversConstruct(this, "MakerResolvers", {
       api: makerAppSync.api,
@@ -168,6 +229,13 @@ export class MakerDomainStack extends cdk.Stack {
       getVerificationStatusLambda: getVerificationStatusLambda.function,
       getMakerSettingsLambda: getMakerSettingsLambda.function,
       updateMakerSettingsLambda: updateMakerSettingsLambda.function,
+      // Commission
+      submitProposalLambda: submitProposalLambda.function,
+      listProposalsMakerLambda: listProposalsMakerLambda.function,
+      listProposalsCollectorLambda: listProposalsCollectorLambda.function,
+      getProposalLambda: getProposalLambda.function,
+      updateProposalStatusLambda: updateProposalStatusLambda.function,
+      addMilestoneClipLambda: addMilestoneClipLambda.function,
     });
   }
 }

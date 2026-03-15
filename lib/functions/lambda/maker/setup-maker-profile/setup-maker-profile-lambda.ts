@@ -1,13 +1,11 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import { requireAuthenticatedUser, validateId, validateTimezone } from '../../../../utils/maker-validation';
-import { TTL_POLICIES } from '../../../../utils/maker-constants';
 import { initTelemetryLogger } from "../../../../utils/telemetry-logger";
 import * as crypto from 'crypto';
 
-const MAKER_ENGAGEMENT_FACTS_TABLE_NAME = process.env.MAKER_ENGAGEMENT_FACTS_TABLE_NAME || '';
-const MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME = process.env.MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME || '';
+const MAKER_PROFILES_TABLE_NAME = process.env.MAKER_PROFILES_TABLE_NAME || '';
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || 'default';
 const EVENT_SOURCE = process.env.EVENT_SOURCE || 'hand-made.maker-domain';
 
@@ -85,7 +83,83 @@ interface AppSyncEvent {
   };
   identity?: {
     sub?: string;
-    claims?: { sub?: string };
+    claims?: Record<string, unknown> & { sub?: string };
+  };
+}
+
+function getClaimString(claims: Record<string, unknown> | undefined, key: string): string | null {
+  const value = claims?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function isClaimTrue(claims: Record<string, unknown> | undefined, key: string): boolean {
+  const value = claims?.[key];
+  return value === true || value === 'true';
+}
+
+function buildDefaultProfile(userId: string, claims: Record<string, unknown> | undefined, now: string) {
+  const email = getClaimString(claims, 'email');
+  if (!email) {
+    throw new Error('Authenticated email missing');
+  }
+
+  return {
+    userId,
+    email,
+    username: getClaimString(claims, 'cognito:username'),
+    fullName: getClaimString(claims, 'name'),
+    givenName: getClaimString(claims, 'given_name'),
+    familyName: getClaimString(claims, 'family_name'),
+    phoneNumber: getClaimString(claims, 'phone_number'),
+    displayName: null,
+    publicProfileEnabled: true,
+    phoneVerified: false,
+    phoneVerifiedAt: null,
+    businessName: null,
+    storeDescription: null,
+    bio: null,
+    serviceAreas: null,
+    businessType: null,
+    taxId: null,
+    location: null,
+    profileImageUrl: null,
+    profileImageStatus: null,
+    profileImageUpdatedAt: null,
+    bannerImageUrl: null,
+    bannerImageStatus: null,
+    bannerImageUpdatedAt: null,
+    primaryCraft: null,
+    yearsOfExperience: null,
+    publicEmail: null,
+    publicPhoneNumber: null,
+    websiteUrl: null,
+    instagramUrl: null,
+    tiktokUrl: null,
+    facebookUrl: null,
+    shippingPolicy: null,
+    customOrderPolicy: null,
+    cancellationPolicy: null,
+    identityVerificationStatus: 'UNVERIFIED' as const,
+    emailVerified: isClaimTrue(claims, 'email_verified'),
+    emailVerifiedAt: null,
+    totalShelfItems: 0,
+    activeShelfItems: 0,
+    soldShelfItems: 0,
+    totalSales: 0,
+    totalReviews: 0,
+    averageRating: null,
+    acceptCustomOrders: true,
+    acceptRushOrders: false,
+    isActive: true,
+    isSuspended: false,
+    suspendedReason: null,
+    onboardingComplete: false,
+    lastLoginAt: null,
+    marketingOptInAt: null,
+    termsAcceptedAt: null,
+    privacyPolicyAcceptedAt: null,
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
@@ -100,8 +174,8 @@ export const handler = async (event: AppSyncEvent): Promise<any> => {
   // Extract trace context from headers for event propagation
   const traceContext = resolveTraceContext(event);
 
-  if (!MAKER_ENGAGEMENT_FACTS_TABLE_NAME || !MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME) {
-    console.error('Table names not configured');
+  if (!MAKER_PROFILES_TABLE_NAME) {
+    console.error('MAKER_PROFILES_TABLE_NAME not configured');
     throw new Error('Internal server error');
   }
 
@@ -166,91 +240,67 @@ export const handler = async (event: AppSyncEvent): Promise<any> => {
   }
 
   const now = new Date().toISOString();
-  const idempotencyKey = `SETUP_PROFILE#${userId}#${now}`;
 
   try {
-    // Get existing profile to check current version
+    const claims = event.identity?.claims;
     const existing = await client.send(
       new GetCommand({
-        TableName: MAKER_ENGAGEMENT_FACTS_TABLE_NAME,
-        Key: {
-          pk: `MAKER#${userId}`,
-          sk: 'PROFILE'
-        },
+        TableName: MAKER_PROFILES_TABLE_NAME,
+        Key: { userId },
       })
     );
 
-    if (!existing.Item) {
-      throw new Error('Profile not found. User must register first.');
-    }
+    const existingProfile = (existing.Item as Record<string, unknown> | undefined)
+      ?? buildDefaultProfile(userId, claims, now);
 
-    const currentVersion = existing.Item.version || 0;
-    const newVersion = currentVersion + 1;
-
-    // Prepare updated profile data
     const updatedProfileData = {
-      ...existing.Item.data,
+      ...existingProfile,
+      userId,
       businessName,
       storeDescription,
       bio,
-      ...(displayName && { displayName }),
+      displayName: displayName ?? existingProfile.displayName ?? null,
       businessType,
-      location,
+      location: {
+        country: location.country,
+        state: location.state,
+        city: location.city,
+        ...(location.zipCode ? { zipCode: location.zipCode } : {}),
+        timezone,
+      },
       primaryCraft,
       yearsOfExperience,
       acceptCustomOrders,
       acceptRushOrders,
+      onboardingComplete: true,
       updatedAt: now,
-      ...(taxId && { taxId }),
-      ...(profileImageUrl && { profileImageUrl }),
-      ...(bannerImageUrl && { bannerImageUrl }),
+      ...(taxId !== undefined ? { taxId } : {}),
+      ...(profileImageUrl !== undefined
+        ? {
+            profileImageUrl,
+            profileImageStatus: profileImageUrl ? 'READY' : null,
+            profileImageUpdatedAt: now,
+          }
+        : {}),
+      ...(bannerImageUrl !== undefined
+        ? {
+            bannerImageUrl,
+            bannerImageStatus: bannerImageUrl ? 'READY' : null,
+            bannerImageUpdatedAt: now,
+          }
+        : {}),
     };
 
     if ('storeName' in updatedProfileData) {
       delete (updatedProfileData as { storeName?: string }).storeName;
     }
 
-    // Create new fact entry and activity record atomically
-    const transactItems = [
-      {
-        Put: {
-          TableName: MAKER_ENGAGEMENT_FACTS_TABLE_NAME,
-          Item: {
-            pk: `MAKER#${userId}`,
-            sk: 'PROFILE',
-            data: updatedProfileData,
-            timestamp: now,
-            version: newVersion,
-          },
-          ConditionExpression: 'attribute_not_exists(pk) OR #version < :newVersion',
-          ExpressionAttributeNames: {
-            '#version': 'version',
-          },
-          ExpressionAttributeValues: {
-            ':newVersion': newVersion,
-          },
-        },
-      },
-      {
-        Put: {
-          TableName: MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME,
-          Item: {
-            pk: `MAKER#${userId}`,
-            sk: `ACTIVITY#${idempotencyKey}`,
-            data: {
-              type: 'PROFILE_SETUP_COMPLETED',
-              businessName,
-              primaryCraft,
-              timestamp: now,
-            },
-            ttl: Math.floor(Date.now() / 1000) + TTL_POLICIES.ACTIVITY_LONG,
-          },
-          ConditionExpression: 'attribute_not_exists(pk)',
-        },
-      },
-    ];
-
-    await client.send(new TransactWriteCommand({ TransactItems: transactItems }));
+    await client.send(
+      new PutCommand({
+        TableName: MAKER_PROFILES_TABLE_NAME,
+        Item: updatedProfileData,
+      })
+    );
 
     console.log('Profile setup completed successfully', { userId, businessName });
 

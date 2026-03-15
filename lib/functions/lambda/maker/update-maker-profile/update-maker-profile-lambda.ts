@@ -1,11 +1,10 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { requireAuthenticatedUser, validateId } from '../../../../utils/maker-validation';
-import { TTL_POLICIES, ERROR_MESSAGES } from '../../../../utils/maker-constants';
+import { ERROR_MESSAGES } from '../../../../utils/maker-constants';
 import { initTelemetryLogger } from "../../../../utils/telemetry-logger";
 
-const MAKER_ENGAGEMENT_FACTS_TABLE_NAME = process.env.MAKER_ENGAGEMENT_FACTS_TABLE_NAME;
-const MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME = process.env.MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME;
+const MAKER_PROFILES_TABLE_NAME = process.env.MAKER_PROFILES_TABLE_NAME;
 const IDEMPOTENCY_TABLE_NAME = process.env.IDEMPOTENCY_TABLE_NAME;
 const AUDIT_TABLE_NAME = process.env.AUDIT_TABLE_NAME;
 const FEATURE_FLAGS = process.env.FEATURE_FLAGS;
@@ -17,6 +16,8 @@ interface UpdateMakerProfileInput {
   displayName?: unknown;
   bio?: unknown;
   serviceAreas?: unknown;
+  profileImageUrl?: unknown;
+  bannerImageUrl?: unknown;
   publicEmail?: unknown;
   publicPhoneNumber?: unknown;
   websiteUrl?: unknown;
@@ -27,6 +28,8 @@ interface UpdateMakerProfileInput {
   customOrderPolicy?: unknown;
   cancellationPolicy?: unknown;
   publicProfileEnabled?: unknown;
+  acceptCustomOrders?: unknown;
+  acceptRushOrders?: unknown;
 }
 
 function optionalString(v: unknown, maxLen: number): string | null {
@@ -88,7 +91,7 @@ export const handler = async (event: {
   request?: { headers?: Record<string, string> };
 }) => {
   initTelemetryLogger(event, { domain: "maker-domain", service: "update-maker-profile" });
-  if (!MAKER_ENGAGEMENT_FACTS_TABLE_NAME || !MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME) {
+  if (!MAKER_PROFILES_TABLE_NAME) {
     throw new Error('Internal server error');
   }
   if (!IDEMPOTENCY_TABLE_NAME || !AUDIT_TABLE_NAME) {
@@ -147,22 +150,15 @@ export const handler = async (event: {
   // Get existing profile
   const getResult = await client.send(
     new GetCommand({
-      TableName: MAKER_ENGAGEMENT_FACTS_TABLE_NAME,
-      Key: {
-        pk: `MAKER#${userId}`,
-        sk: 'PROFILE'
-      },
+      TableName: MAKER_PROFILES_TABLE_NAME,
+      Key: { userId },
     })
   );
   if (!getResult.Item) throw new Error('Maker profile not found');
 
   const now = new Date().toISOString();
-  const currentVersion = getResult.Item.version || 0;
-  const newVersion = currentVersion + 1;
-  const activityKey = `UPDATE_PROFILE#${userId}#${now}`;
 
-  // Start with existing data
-  const updatedData = { ...getResult.Item.data };
+  const updatedData = { ...(getResult.Item as Record<string, unknown>) };
   updatedData.updatedAt = now;
 
   // Apply updates
@@ -185,6 +181,20 @@ export const handler = async (event: {
     const v = optionalStringArray(input.serviceAreas, 50);
     if (v === null) throw new Error('Invalid input format');
     updatedData.serviceAreas = v;
+  }
+  if (input.profileImageUrl !== undefined) {
+    const v = optionalString(input.profileImageUrl, 500);
+    if (v === null) throw new Error('Invalid input format');
+    updatedData.profileImageUrl = v;
+    updatedData.profileImageStatus = v ? 'READY' : null;
+    updatedData.profileImageUpdatedAt = now;
+  }
+  if (input.bannerImageUrl !== undefined) {
+    const v = optionalString(input.bannerImageUrl, 500);
+    if (v === null) throw new Error('Invalid input format');
+    updatedData.bannerImageUrl = v;
+    updatedData.bannerImageStatus = v ? 'READY' : null;
+    updatedData.bannerImageUpdatedAt = now;
   }
   if (input.publicEmail !== undefined) {
     const v = optionalString(input.publicEmail, 200);
@@ -235,64 +245,47 @@ export const handler = async (event: {
     if (typeof input.publicProfileEnabled !== 'boolean') throw new Error('Invalid input format');
     updatedData.publicProfileEnabled = input.publicProfileEnabled;
   }
+  if (input.acceptCustomOrders !== undefined) {
+    if (typeof input.acceptCustomOrders !== 'boolean') throw new Error('Invalid input format');
+    updatedData.acceptCustomOrders = input.acceptCustomOrders;
+  }
+  if (input.acceptRushOrders !== undefined) {
+    if (typeof input.acceptRushOrders !== 'boolean') throw new Error('Invalid input format');
+    updatedData.acceptRushOrders = input.acceptRushOrders;
+  }
 
-  // Create activity data for tracking what changed
+  const changedFields: string[] = [];
   const activityData: Record<string, unknown> = {
     type: 'PROFILE_UPDATED',
     timestamp: now,
   };
-  if (input.businessName !== undefined) activityData.businessName = updatedData.businessName;
-  if (input.displayName !== undefined) activityData.displayName = updatedData.displayName;
-  if (input.bio !== undefined) activityData.bio = updatedData.bio;
-  if (input.serviceAreas !== undefined) activityData.serviceAreas = updatedData.serviceAreas;
-  if (input.publicEmail !== undefined) activityData.publicEmail = updatedData.publicEmail;
-  if (input.publicPhoneNumber !== undefined) activityData.publicPhoneNumber = updatedData.publicPhoneNumber;
-  if (input.websiteUrl !== undefined) activityData.websiteUrl = updatedData.websiteUrl;
-  if (input.instagramUrl !== undefined) activityData.instagramUrl = updatedData.instagramUrl;
-  if (input.tiktokUrl !== undefined) activityData.tiktokUrl = updatedData.tiktokUrl;
-  if (input.facebookUrl !== undefined) activityData.facebookUrl = updatedData.facebookUrl;
-  if (input.shippingPolicy !== undefined) activityData.shippingPolicy = updatedData.shippingPolicy;
-  if (input.customOrderPolicy !== undefined) activityData.customOrderPolicy = updatedData.customOrderPolicy;
-  if (input.cancellationPolicy !== undefined) activityData.cancellationPolicy = updatedData.cancellationPolicy;
-  if (input.publicProfileEnabled !== undefined) activityData.publicProfileEnabled = updatedData.publicProfileEnabled;
+  if (input.businessName !== undefined) { activityData.businessName = updatedData.businessName; changedFields.push('businessName'); }
+  if (input.displayName !== undefined) { activityData.displayName = updatedData.displayName; changedFields.push('displayName'); }
+  if (input.bio !== undefined) { activityData.bio = updatedData.bio; changedFields.push('bio'); }
+  if (input.serviceAreas !== undefined) { activityData.serviceAreas = updatedData.serviceAreas; changedFields.push('serviceAreas'); }
+  if (input.profileImageUrl !== undefined) { activityData.profileImageUrl = updatedData.profileImageUrl; changedFields.push('profileImageUrl'); }
+  if (input.bannerImageUrl !== undefined) { activityData.bannerImageUrl = updatedData.bannerImageUrl; changedFields.push('bannerImageUrl'); }
+  if (input.publicEmail !== undefined) { activityData.publicEmail = updatedData.publicEmail; changedFields.push('publicEmail'); }
+  if (input.publicPhoneNumber !== undefined) { activityData.publicPhoneNumber = updatedData.publicPhoneNumber; changedFields.push('publicPhoneNumber'); }
+  if (input.websiteUrl !== undefined) { activityData.websiteUrl = updatedData.websiteUrl; changedFields.push('websiteUrl'); }
+  if (input.instagramUrl !== undefined) { activityData.instagramUrl = updatedData.instagramUrl; changedFields.push('instagramUrl'); }
+  if (input.tiktokUrl !== undefined) { activityData.tiktokUrl = updatedData.tiktokUrl; changedFields.push('tiktokUrl'); }
+  if (input.facebookUrl !== undefined) { activityData.facebookUrl = updatedData.facebookUrl; changedFields.push('facebookUrl'); }
+  if (input.shippingPolicy !== undefined) { activityData.shippingPolicy = updatedData.shippingPolicy; changedFields.push('shippingPolicy'); }
+  if (input.customOrderPolicy !== undefined) { activityData.customOrderPolicy = updatedData.customOrderPolicy; changedFields.push('customOrderPolicy'); }
+  if (input.cancellationPolicy !== undefined) { activityData.cancellationPolicy = updatedData.cancellationPolicy; changedFields.push('cancellationPolicy'); }
+  if (input.publicProfileEnabled !== undefined) { activityData.publicProfileEnabled = updatedData.publicProfileEnabled; changedFields.push('publicProfileEnabled'); }
+  if (input.acceptCustomOrders !== undefined) { activityData.acceptCustomOrders = updatedData.acceptCustomOrders; changedFields.push('acceptCustomOrders'); }
+  if (input.acceptRushOrders !== undefined) { activityData.acceptRushOrders = updatedData.acceptRushOrders; changedFields.push('acceptRushOrders'); }
 
   try {
-    // Atomically create new fact and activity record
-    const transactItems = [
-      {
-        Put: {
-          TableName: MAKER_ENGAGEMENT_FACTS_TABLE_NAME,
-          Item: {
-            pk: `MAKER#${userId}`,
-            sk: 'PROFILE',
-            data: updatedData,
-            timestamp: now,
-            version: newVersion,
-          },
-          ConditionExpression: 'attribute_not_exists(pk) OR #version < :newVersion',
-          ExpressionAttributeNames: {
-            '#version': 'version',
-          },
-          ExpressionAttributeValues: {
-            ':newVersion': newVersion,
-          },
-        },
-      },
-      {
-        Put: {
-          TableName: MAKER_ENGAGEMENT_ACTIVITY_TABLE_NAME,
-          Item: {
-            pk: `MAKER#${userId}`,
-            sk: `ACTIVITY#${activityKey}`,
-            data: activityData,
-            ttl: Math.floor(Date.now() / 1000) + TTL_POLICIES.ACTIVITY_MEDIUM,
-          },
-          ConditionExpression: 'attribute_not_exists(pk)',
-        },
-      },
-    ];
-
-    await client.send(new TransactWriteCommand({ TransactItems: transactItems }));
+    await client.send(
+      new PutCommand({
+        TableName: MAKER_PROFILES_TABLE_NAME,
+        Item: updatedData,
+        ConditionExpression: 'attribute_exists(userId)',
+      })
+    );
 
     if (featureFlags.auditTrail) {
       await client.send(
@@ -302,7 +295,7 @@ export const handler = async (event: {
             userId,
             eventKey: `${now}#maker.update.profile`,
             action: 'maker.update.profile',
-            changedFields: Object.keys(activityData).filter((key) => key !== 'type' && key !== 'timestamp'),
+            changedFields,
             createdAt: now,
             source: 'appsync',
             expires_at: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 90,
@@ -330,8 +323,8 @@ export const handler = async (event: {
     return updatedData;
   } catch (error: any) {
     if (error.name === 'ConditionalCheckFailedException') {
-      console.error('Profile version conflict or activity already exists', { userId });
-      throw new Error('Profile update conflict. Please try again.');
+      console.error('Maker profile disappeared during profile update', { userId });
+      throw new Error('Maker profile not found');
     }
     console.error('Failed to update profile:', error);
     throw new Error('Failed to update profile');

@@ -11,13 +11,8 @@ export interface MakerAppSyncResolversConstructProps {
   getVerificationStatusLambda?: lambda.IFunction;
   getMakerSettingsLambda?: lambda.IFunction;
   updateMakerSettingsLambda?: lambda.IFunction;
-  // Commission
-  submitProposalLambda?: lambda.IFunction;
-  listProposalsMakerLambda?: lambda.IFunction;
-  listProposalsCollectorLambda?: lambda.IFunction;
-  getProposalLambda?: lambda.IFunction;
-  updateProposalStatusLambda?: lambda.IFunction;
-  addMilestoneClipLambda?: lambda.IFunction;
+  operationsLambda?: lambda.IFunction;
+  craftHeritageLambda?: lambda.IFunction;
 }
 
 export class MakerAppSyncResolversConstruct extends Construct {
@@ -70,6 +65,48 @@ export class MakerAppSyncResolversConstruct extends Construct {
       getMakerSettingsDataSource.createResolver('GetMakerSettingsResolver', {
         typeName: 'Query',
         fieldName: 'getMakerSettings',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+    }
+
+    if (props.operationsLambda) {
+      const operationsDataSource = props.api.addLambdaDataSource(
+        'MakerOperationsDataSource',
+        props.operationsLambda
+      );
+
+      operationsDataSource.createResolver('GetOperationsResolver', {
+        typeName: 'Query',
+        fieldName: 'getOperations',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+
+      operationsDataSource.createResolver('GetCurrentOperationsResolver', {
+        typeName: 'Query',
+        fieldName: 'getCurrentOperations',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+    }
+
+    if (props.craftHeritageLambda) {
+      const craftHeritageDataSource = props.api.addLambdaDataSource(
+        'CraftHeritageDataSource',
+        props.craftHeritageLambda
+      );
+
+      craftHeritageDataSource.createResolver('ListCraftHeritageResolver', {
+        typeName: 'Query',
+        fieldName: 'listCraftHeritage',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+
+      craftHeritageDataSource.createResolver('GetCraftHeritageResolver', {
+        typeName: 'Query',
+        fieldName: 'getCraftHeritage',
         requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
         responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
       });
@@ -132,64 +169,61 @@ export class MakerAppSyncResolversConstruct extends Construct {
       });
     }
 
-    // ── Commission Resolvers ────────────────────────────────────────
-    if (props.submitProposalLambda) {
-      const ds = props.api.addLambdaDataSource('SubmitProposalDataSource', props.submitProposalLambda);
-      ds.createResolver('SubmitProposalResolver', {
-        typeName: 'Mutation', fieldName: 'submitCommissionProposal',
+    if (props.operationsLambda) {
+      const operationsMutationDataSource = props.api.addLambdaDataSource(
+        'MakerOperationsMutationDataSource',
+        props.operationsLambda
+      );
+
+      operationsMutationDataSource.createResolver('SetupOperationsResolver', {
+        typeName: 'Mutation',
+        fieldName: 'setupOperations',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+
+      operationsMutationDataSource.createResolver('UpdateOperationsResolver', {
+        typeName: 'Mutation',
+        fieldName: 'updateOperations',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+
+      operationsMutationDataSource.createResolver('SetVacationModeResolver', {
+        typeName: 'Mutation',
+        fieldName: 'setVacationMode',
         requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
         responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
       });
     }
 
-    if (props.listProposalsMakerLambda) {
-      const ds = props.api.addLambdaDataSource('ListProposalsMakerDataSource', props.listProposalsMakerLambda);
-      ds.createResolver('ListProposalsMakerResolver', {
-        typeName: 'Query', fieldName: 'listProposalsForMaker',
+    if (props.craftHeritageLambda) {
+      const craftHeritageMutationDataSource = props.api.addLambdaDataSource(
+        'CraftHeritageMutationDataSource',
+        props.craftHeritageLambda
+      );
+
+      craftHeritageMutationDataSource.createResolver('AddCraftHeritageResolver', {
+        typeName: 'Mutation',
+        fieldName: 'addCraftHeritage',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+
+      craftHeritageMutationDataSource.createResolver('UpdateCraftHeritageResolver', {
+        typeName: 'Mutation',
+        fieldName: 'updateCraftHeritage',
+        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
+        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
+      });
+
+      craftHeritageMutationDataSource.createResolver('DeleteCraftHeritageResolver', {
+        typeName: 'Mutation',
+        fieldName: 'deleteCraftHeritage',
         requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
         responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
       });
     }
 
-    if (props.listProposalsCollectorLambda) {
-      const ds = props.api.addLambdaDataSource('ListProposalsCollectorDataSource', props.listProposalsCollectorLambda);
-      ds.createResolver('ListProposalsCollectorResolver', {
-        typeName: 'Query', fieldName: 'listProposalsForCollector',
-        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
-        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
-      });
-    }
-
-    if (props.getProposalLambda) {
-      const ds = props.api.addLambdaDataSource('GetProposalDataSource', props.getProposalLambda);
-      ds.createResolver('GetProposalResolver', {
-        typeName: 'Query', fieldName: 'getProposal',
-        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
-        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
-      });
-    }
-
-    if (props.updateProposalStatusLambda) {
-      const ds = props.api.addLambdaDataSource('UpdateProposalStatusDataSource', props.updateProposalStatusLambda);
-      ds.createResolver('UpdateProposalStatusResolver', {
-        typeName: 'Mutation', fieldName: 'updateProposalStatus',
-        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
-        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
-      });
-    }
-
-    if (props.addMilestoneClipLambda) {
-      const ds = props.api.addLambdaDataSource('AddMilestoneClipDataSource', props.addMilestoneClipLambda);
-      ds.createResolver('AddMilestoneClipResolver', {
-        typeName: 'Mutation', fieldName: 'addMilestoneClip',
-        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
-        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
-      });
-      ds.createResolver('ListMilestoneClipsResolver', {
-        typeName: 'Query', fieldName: 'listMilestoneClips',
-        requestMappingTemplate: appsync.MappingTemplate.lambdaRequest(),
-        responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
-      });
-    }
   }
 }

@@ -82,6 +82,23 @@ const validateSettingsSection = (value: unknown): Record<string, unknown> => {
   return value;
 };
 
+const deepMergeSettings = (
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> => {
+  const merged: Record<string, unknown> = { ...current };
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (isPlainObject(value) && isPlainObject(merged[key])) {
+      merged[key] = deepMergeSettings(merged[key] as Record<string, unknown>, value);
+    } else {
+      merged[key] = value;
+    }
+  }
+
+  return merged;
+};
+
 export const handler = async (event: AppSyncEvent) => {
   initTelemetryLogger(event, { domain: "maker-domain", service: "update-maker-settings" });
 
@@ -148,43 +165,59 @@ export const handler = async (event: AppSyncEvent) => {
   }
 
   try {
+    const existingSettingsResult = await client.send(
+      new GetCommand({
+        TableName: MAKER_SETTINGS_TABLE_NAME,
+        Key: { userId },
+      }),
+    );
+    const existingSettings = (existingSettingsResult.Item ?? {}) as Record<string, unknown>;
+
+    const mergeSection = (sectionName: string, incomingSection: unknown) => {
+      const patch = validateSettingsSection(incomingSection);
+      const current = isPlainObject(existingSettings[sectionName])
+        ? (existingSettings[sectionName] as Record<string, unknown>)
+        : {};
+      return deepMergeSettings(current, patch);
+    };
+
     // Build update expression dynamically
     const updateParts: string[] = [];
     const expressionAttributeNames: Record<string, string> = {};
     const expressionAttributeValues: Record<string, any> = {};
 
     if (input.notifications !== undefined) {
-      const section = validateSettingsSection(input.notifications);
+      const section = mergeSection('notifications', input.notifications);
       updateParts.push(`notifications = :notifications`);
       expressionAttributeValues[':notifications'] = section;
     }
     if (input.notificationChannels !== undefined) {
-      const section = validateSettingsSection(input.notificationChannels);
+      const section = mergeSection('notificationChannels', input.notificationChannels);
       updateParts.push(`notificationChannels = :notificationChannels`);
       expressionAttributeValues[':notificationChannels'] = section;
     }
     if (input.shop !== undefined) {
-      const section = validateSettingsSection(input.shop);
+      const section = mergeSection('shop', input.shop);
       updateParts.push(`shop = :shop`);
       expressionAttributeValues[':shop'] = section;
     }
     if (input.business !== undefined) {
-      const section = validateSettingsSection(input.business);
+      const section = mergeSection('business', input.business);
       updateParts.push(`business = :business`);
       expressionAttributeValues[':business'] = section;
     }
     if (input.privacy !== undefined) {
-      const section = validateSettingsSection(input.privacy);
+      const section = mergeSection('privacy', input.privacy);
       updateParts.push(`privacy = :privacy`);
       expressionAttributeValues[':privacy'] = section;
     }
     if (input.communication !== undefined) {
-      const section = validateSettingsSection(input.communication);
+      const section = mergeSection('communication', input.communication);
       updateParts.push(`communication = :communication`);
       expressionAttributeValues[':communication'] = section;
     }
     if (input.display !== undefined) {
-      const section = validateSettingsSection(input.display);
+      const section = mergeSection('display', input.display);
       updateParts.push(`#display = :display`);
       expressionAttributeNames['#display'] = 'display';
       expressionAttributeValues[':display'] = section;

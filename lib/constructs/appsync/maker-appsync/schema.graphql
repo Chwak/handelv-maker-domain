@@ -15,16 +15,6 @@ type Query @aws_cognito_user_pools {
   # Craft Heritage queries
   listCraftHeritage(limit: Int, nextToken: String): CraftHeritageConnection
   getCraftHeritage(heritageId: ID!): CraftHeritage
-  
-  # Analytics queries
-  getAnalyticsDashboard: AnalyticsMetrics
-  getAnalyticsHistory(fromDate: String!, toDate: String!): AnalyticsHistoryConnection
-
-  # Commission queries
-  listProposalsForMaker(status: ProposalStatus, limit: Int, nextToken: String): CommissionProposalConnection
-  listProposalsForCollector(limit: Int, nextToken: String): CommissionProposalConnection
-  getProposal(proposalId: ID!): CommissionProposal
-  listMilestoneClips(proposalId: ID!, limit: Int, nextToken: String): MilestoneClipConnection
 }
 
 # =====================================================
@@ -46,11 +36,6 @@ type Mutation @aws_cognito_user_pools {
   addCraftHeritage(input: AddCraftHeritageInput!): CraftHeritage
   updateCraftHeritage(input: UpdateCraftHeritageInput!): CraftHeritage
   deleteCraftHeritage(heritageId: ID!): Boolean
-
-  # Commission mutations
-  submitCommissionProposal(input: SubmitProposalInput!): CommissionProposal
-  updateProposalStatus(input: UpdateProposalStatusInput!): CommissionProposal
-  addMilestoneClip(input: AddMilestoneClipInput!): MilestoneClip
 }
 
 # =====================================================
@@ -61,10 +46,6 @@ type Subscription @aws_cognito_user_pools {
     @aws_subscribe(mutations: ["setupMakerProfile", "updateMakerProfile", "updateSkills"])
   onOperationsUpdated(makerUserId: ID!): BusinessOperations
     @aws_subscribe(mutations: ["setupOperations", "updateOperations", "setVacationMode"])
-  onProposalStatusUpdated(proposalId: ID!): CommissionProposal
-    @aws_subscribe(mutations: ["updateProposalStatus"])
-  onMilestoneClipAdded(proposalId: ID!): MilestoneClip
-    @aws_subscribe(mutations: ["addMilestoneClip"])
 }
 
 # =====================================================
@@ -321,59 +302,7 @@ type MediaDocumentation {
 
 type CraftHeritageConnection {
   items: [CraftHeritage!]!
-}
-
-# =====================================================
-# TYPES - ANALYTICS
-# =====================================================
-type AnalyticsMetrics {
-  makerUserId: ID!
-  metricDate: String!
-  
-  # Traffic
-  profileViews: Int!
-  shelfItemViews: Int!
-  shelfItemClicks: Int!
-  savedCount: Int!
-  
-  # Followers
-  followersGained: Int!
-  followersLost: Int!
-  totalFollowers: Int!
-  
-  # Sales
-  salesCount: Int!
-  revenue: Float!
-  avgOrderValue: Float!
-  conversionRate: Float!
-  
-  # Custom Orders
-  customOrderInquiries: Int!
-  customOrderAcceptanceRate: Float!
-  
-  # Reviews
-  avgRating: Float!
-  newReviews: Int!
-  
-  # Communication
-  messageResponseTime: Int!
-  messageResponseRate: Float!
-  
-  # Shelf Items
-  activeShelfItemsCount: Int!
-  draftShelfItemsCount: Int!
-  soldOutShelfItemsCount: Int!
-  
-  # Performance
-  topPerformingShelfItemId: String
-  topPerformingCategory: String
-  
-  # Timestamps
-  createdAt: AWSDateTime!
-}
-
-type AnalyticsHistoryConnection {
-  items: [AnalyticsMetrics!]!
+  nextToken: String
 }
 
 # =====================================================
@@ -457,6 +386,7 @@ input LocationInput {
 # INPUTS - BUSINESS OPERATIONS
 # =====================================================
 input SetupOperationsInput {
+  makerUserId: ID
   weekDate: String!
   workingDaysThisWeek: [Int!]!
   hoursPerDay: HoursPerDayInput!
@@ -471,6 +401,7 @@ input SetupOperationsInput {
 }
 
 input UpdateOperationsInput {
+  makerUserId: ID
   weekDate: String!
   workingDaysThisWeek: [Int!]
   hoursPerDay: HoursPerDayInput
@@ -482,6 +413,7 @@ input UpdateOperationsInput {
 }
 
 input SetVacationModeInput {
+  makerUserId: ID
   weekDate: String!
   vacationMode: Boolean!
   vacationStartDate: AWSDateTime
@@ -507,7 +439,7 @@ input RecurringClosureInput {
 # INPUTS - CRAFT HERITAGE
 # =====================================================
 input AddCraftHeritageInput {
-  makerUserId: ID!
+  makerUserId: ID
   craftTradition: String!
   traditionOrigin: TraditionOriginInput!
   masteryLevel: MasteryLevel!
@@ -523,7 +455,7 @@ input AddCraftHeritageInput {
 }
 
 input UpdateCraftHeritageInput {
-  makerUserId: ID!
+  makerUserId: ID
   heritageId: ID!
   craftTradition: String
   traditionOrigin: TraditionOriginInput
@@ -776,93 +708,4 @@ input DisplayPreferencesInput {
   timeFormat: String
 }
 
-# =====================================================
-# ENUMS - COMMISSION
-# =====================================================
-enum ProposalStatus {
-  PROPOSAL_PENDING
-  IN_CREATION
-  REFINEMENT_REQUESTED
-  READY_FOR_SHELF
-  DECLINED
-  FULFILLED
-}
-
-enum ProposalAction {
-  ACCEPT
-  DECLINE
-  REQUEST_REFINEMENT
-  MARK_READY
-}
-
-# =====================================================
-# TYPES - COMMISSION
-# =====================================================
-type CommissionProposal {
-  proposalId: ID!
-  makerId: ID!
-  collectorId: ID!
-  collectorDisplayName: String
-  status: ProposalStatus!
-  desiredMaterial: String!
-  story: String!
-  dimensions: String!
-  moodImageKey: String
-  declineReason: String
-  refinementNote: String
-  passportSealEnabled: Boolean!
-  createdAt: AWSDateTime!
-  updatedAt: AWSDateTime!
-  acceptedAt: AWSDateTime
-  completedAt: AWSDateTime
-  productId: ID
-}
-
-type CommissionProposalConnection {
-  items: [CommissionProposal!]!
-  nextToken: String
-}
-
-type MilestoneClip {
-  proposalId: ID!
-  clipKey: String!
-  clipId: ID!
-  makerId: ID!
-  chapter: String!
-  note: String!
-  mediaKey: String
-  createdAt: AWSDateTime!
-}
-
-type MilestoneClipConnection {
-  items: [MilestoneClip!]!
-  nextToken: String
-}
-
-# =====================================================
-# INPUTS - COMMISSION
-# =====================================================
-input SubmitProposalInput {
-  makerId: ID!
-  desiredMaterial: String!
-  story: String!
-  dimensions: String!
-  moodImageKey: String
-  collectorDisplayName: String
-}
-
-input UpdateProposalStatusInput {
-  proposalId: ID!
-  action: ProposalAction!
-  declineReason: String
-  refinementNote: String
-  productId: ID
-}
-
-input AddMilestoneClipInput {
-  proposalId: ID!
-  chapter: String!
-  note: String!
-  mediaKey: String
-}
 

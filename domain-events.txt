@@ -99,18 +99,18 @@ Consumers: product-domain, shelf-discovery-domain, notification-domain
 COMMISSION EVENTS (hand-made.maker-domain)
 ================================================================================
 
-Event: commission.proposal.submitted.v1
+Event: commission.special_request.submitted.v1
 Status: ✅ IMPLEMENTED
 --------------------------------------------------------------------------------
 Description:
-  Published when a collector submits a Vision Brief commission proposal to a maker.
+  Published when a collector submits a Vision Brief special request to a maker.
 
-Trigger: submitCommissionProposal mutation (submit-proposal-lambda)
+Trigger: submitSpecialRequest mutation (submit-special-request-lambda)
 Republish Lambda: maker-domain-republish-lambda → outbox table
 
 Payload Schema:
   {
-    "proposalId": "string (UUID)",
+    "specialRequestId": "string (UUID)",
     "makerId": "string (UUID)",
     "collectorId": "string (UUID)",
     "collectorDisplayName": "string | null",
@@ -123,18 +123,18 @@ Consumers:
 
 --------------------------------------------------------------------------------
 
-Event: commission.proposal.accepted.v1
+Event: commission.special_request.accepted.v1
 Status: ✅ IMPLEMENTED
 --------------------------------------------------------------------------------
 Description:
-  Published when a maker accepts a Vision Brief proposal (moves to IN_CREATION).
+  Published when a maker accepts a Vision Brief special request (moves to IN_CREATION).
 
-Trigger: updateProposalStatus mutation with action=ACCEPT
+Trigger: updateSpecialRequestStatus mutation with action=ACCEPT
 Republish Lambda: maker-domain-republish-lambda → outbox table
 
 Payload Schema:
   {
-    "proposalId": "string",
+    "specialRequestId": "string",
     "makerId": "string",
     "collectorId": "string",
     "action": "ACCEPT",
@@ -147,18 +147,18 @@ Consumers:
 
 --------------------------------------------------------------------------------
 
-Event: commission.proposal.declined.v1
+Event: commission.special_request.declined.v1
 Status: ✅ IMPLEMENTED
 --------------------------------------------------------------------------------
 Description:
-  Published when a maker declines a Vision Brief proposal.
+  Published when a maker declines a Vision Brief special request.
 
-Trigger: updateProposalStatus mutation with action=DECLINE
+Trigger: updateSpecialRequestStatus mutation with action=DECLINE
 Republish Lambda: maker-domain-republish-lambda → outbox table
 
 Payload Schema:
   {
-    "proposalId": "string",
+    "specialRequestId": "string",
     "makerId": "string",
     "collectorId": "string",
     "action": "DECLINE",
@@ -172,18 +172,18 @@ Consumers:
 
 --------------------------------------------------------------------------------
 
-Event: commission.proposal.refinement_requested.v1
+Event: commission.special_request.refinement_requested.v1
 Status: ✅ IMPLEMENTED
 --------------------------------------------------------------------------------
 Description:
   Published when a maker requests refinement on a Vision Brief before accepting.
 
-Trigger: updateProposalStatus mutation with action=REQUEST_REFINEMENT
+Trigger: updateSpecialRequestStatus mutation with action=REQUEST_REFINEMENT
 Republish Lambda: maker-domain-republish-lambda → outbox table
 
 Payload Schema:
   {
-    "proposalId": "string",
+    "specialRequestId": "string",
     "makerId": "string",
     "collectorId": "string",
     "action": "REQUEST_REFINEMENT",
@@ -209,7 +209,7 @@ Republish Lambda: maker-domain-republish-lambda → outbox table
 Payload Schema:
   {
     "clipId": "string (UUID)",
-    "proposalId": "string",
+    "specialRequestId": "string",
     "makerId": "string",
     "collectorId": "string",
     "chapter": "string",
@@ -223,19 +223,19 @@ Consumers:
 CONSUMED EVENTS
 ================================================================================
 
-Event: commission.proposal.ready_for_shelf.v1
+Event: commission.special_request.ready_for_shelf.v1
 Status: ✅ IMPLEMENTED
 --------------------------------------------------------------------------------
 Description:
   Published when a maker marks a commission as Ready for Shelf, linking the finished
-  product and transitioning the proposal from IN_CREATION to READY_FOR_SHELF.
+  product and transitioning the special request from IN_CREATION to READY_FOR_SHELF.
 
-Trigger: updateProposalStatus mutation with action=MARK_READY (update-proposal-status-lambda)
+Trigger: updateSpecialRequestStatus mutation with action=MARK_READY (update-special-request-status-lambda)
 Republish Lambda: maker-domain-republish-lambda → outbox table
 
 Payload Schema:
   {
-    "proposalId": "string",
+    "specialRequestId": "string",
     "makerId": "string",
     "collectorId": "string",
     "productId": "string",

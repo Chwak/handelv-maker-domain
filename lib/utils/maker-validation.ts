@@ -82,17 +82,32 @@ export function filterPublicProfileData(profile: Record<string, unknown>): Recor
         country: location.country,
         state: location.state,
         city: location.city,
+        zipCode: location.zipCode ?? null,
+        timezone: location.timezone ?? 'UTC',
       }
     : undefined;
 
+  const numberOrZero = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+  const createdAt = typeof profile.createdAt === 'string' ? profile.createdAt : new Date(0).toISOString();
+  const updatedAt = typeof profile.updatedAt === 'string' ? profile.updatedAt : createdAt;
+
   return {
     userId: profile.userId,
+    email: profile.publicEmail ?? profile.email ?? '',
     username: profile.username,
+    fullName: profile.fullName,
+    givenName: profile.givenName,
+    familyName: profile.familyName,
+    phoneNumber: profile.publicPhoneNumber ?? null,
     displayName: profile.displayName,
     businessName: profile.businessName ?? profile.storeName,
     storeDescription: profile.storeDescription,
     bio: profile.bio,
     serviceAreas: profile.serviceAreas,
+    businessType: profile.businessType ?? null,
+    taxId: null,
     location: publicLocation,
     profileImageUrl: profile.profileImageUrl,
     profileImageStatus: profile.profileImageStatus,
@@ -113,12 +128,29 @@ export function filterPublicProfileData(profile: Record<string, unknown>): Recor
     customOrderPolicy: profile.customOrderPolicy,
     cancellationPolicy: profile.cancellationPolicy,
     publicProfileEnabled: profile.publicProfileEnabled,
-    totalProducts: profile.totalProducts ?? profile.totalShelfItems,
-    activeProducts: profile.activeProducts ?? profile.activeShelfItems,
-    soldProducts: profile.soldProducts ?? profile.soldShelfItems,
-    totalSales: profile.totalSales,
-    totalReviews: profile.totalReviews,
+    phoneVerified: Boolean(profile.phoneVerified),
+    phoneVerifiedAt: profile.phoneVerifiedAt ?? null,
+    identityVerificationStatus: profile.identityVerificationStatus ?? 'UNVERIFIED',
+    emailVerified: Boolean(profile.emailVerified),
+    emailVerifiedAt: profile.emailVerifiedAt ?? null,
+    totalShelfItems: numberOrZero(profile.totalShelfItems ?? profile.totalProducts),
+    activeShelfItems: numberOrZero(profile.activeShelfItems ?? profile.activeProducts),
+    soldShelfItems: numberOrZero(profile.soldShelfItems ?? profile.soldProducts),
+    totalSales: numberOrZero(profile.totalSales),
+    totalReviews: numberOrZero(profile.totalReviews),
     averageRating: profile.averageRating,
+    acceptCustomOrders: Boolean(profile.acceptCustomOrders),
+    acceptRushOrders: Boolean(profile.acceptRushOrders),
+    isActive: profile.isActive !== false,
+    isSuspended: Boolean(profile.isSuspended),
+    suspendedReason: profile.suspendedReason ?? null,
+    onboardingComplete: profile.onboardingComplete ?? null,
+    lastLoginAt: profile.lastLoginAt ?? null,
+    marketingOptInAt: profile.marketingOptInAt ?? null,
+    termsAcceptedAt: profile.termsAcceptedAt ?? null,
+    privacyPolicyAcceptedAt: profile.privacyPolicyAcceptedAt ?? null,
+    createdAt,
+    updatedAt,
   };
 }
 

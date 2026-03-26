@@ -224,6 +224,5 @@ export class MakerAppSyncResolversConstruct extends Construct {
         responseMappingTemplate: appsync.MappingTemplate.lambdaResult(),
       });
     }
-
   }
 }
